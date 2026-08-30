@@ -1,0 +1,6 @@
+{
+  "name": "MikroTik User Manager Multi-Router Dashboard",
+  "description": "High-performance Multi-Router MikroTik RouterOS & User Manager management dashboard with on-demand API-SSL connection pooling, 1000+ router scaling, session monitoring, voucher generator, and analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
