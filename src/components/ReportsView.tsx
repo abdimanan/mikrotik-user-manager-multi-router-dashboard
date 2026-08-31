@@ -98,10 +98,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     const gap = 6;
     const cardWidth = (pageWidth - 14 * 2 - gap * 3) / 4;
     const cards: { label: string; value: string; color: [number, number, number] }[] = [
-      { label: 'TOTAL BANDWIDTH', value: `${totalBandwidthGb} GB`, color: [20, 29, 35] },
-      { label: 'TOTAL DOWNLOAD', value: `${(totalDownloadBytes / 1_000_000_000).toFixed(2)} GB`, color: [0, 61, 124] },
-      { label: 'TOTAL UPLOAD', value: `${(totalUploadBytes / 1_000_000_000).toFixed(2)} GB`, color: [0, 110, 37] },
-      { label: 'ACTIVE USERS', value: `${activeUsersCount}/${totalUsersCount}`, color: [0, 110, 37] }
+      { label: 'TOTAL DOWNLOAD (IN)', value: `${(totalDownloadBytes / 1_000_000_000).toFixed(2)} GB`, color: [0, 61, 124] },
+      { label: 'TOTAL UPLOAD (OUT)', value: `${(totalUploadBytes / 1_000_000_000).toFixed(2)} GB`, color: [0, 110, 37] },
+      { label: 'COMBINED USAGE', value: `${totalBandwidthGb} GB`, color: [20, 29, 35] },
+      { label: 'ACTIVE SESSIONS', value: `${activeUsersCount}/${totalUsersCount}`, color: [0, 110, 37] }
     ];
     cards.forEach((card, i) => {
       const x = 14 + i * (cardWidth + gap);
@@ -218,19 +218,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-[#c2c6d3] rounded-xl p-4 shadow-xs">
           <span className="text-[11px] font-bold text-[#727783] uppercase tracking-wider block mb-1">
-            Total Bandwidth
-          </span>
-          <span className="text-2xl font-bold text-[#141d23] font-mono block">
-            {totalBandwidthGb} GB
-          </span>
-          <span className="text-xs font-mono text-[#0054a6] block mt-0.5">
-            {formatMiB(totalDownloadBytes + totalUploadBytes)}
-          </span>
-        </div>
-
-        <div className="bg-white border border-[#c2c6d3] rounded-xl p-4 shadow-xs">
-          <span className="text-[11px] font-bold text-[#727783] uppercase tracking-wider block mb-1">
-            Total Download
+            Total Download (In)
           </span>
           <span className="text-2xl font-bold text-[#003d7c] font-mono flex items-center gap-1">
             <ArrowDown className="w-5 h-5" />
@@ -243,7 +231,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
         <div className="bg-white border border-[#c2c6d3] rounded-xl p-4 shadow-xs">
           <span className="text-[11px] font-bold text-[#727783] uppercase tracking-wider block mb-1">
-            Total Upload
+            Total Upload (Out)
           </span>
           <span className="text-2xl font-bold text-[#006e25] font-mono flex items-center gap-1">
             <ArrowUp className="w-5 h-5" />
@@ -256,11 +244,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
         <div className="bg-white border border-[#c2c6d3] rounded-xl p-4 shadow-xs">
           <span className="text-[11px] font-bold text-[#727783] uppercase tracking-wider block mb-1">
-            Active Users
+            Combined Usage
+          </span>
+          <span className="text-2xl font-bold text-[#141d23] font-mono block">
+            {totalBandwidthGb} GB
+          </span>
+          <span className="text-xs font-mono text-[#0054a6] block mt-0.5">
+            {formatMiB(totalDownloadBytes + totalUploadBytes)}
+          </span>
+        </div>
+
+        <div className="bg-white border border-[#c2c6d3] rounded-xl p-4 shadow-xs">
+          <span className="text-[11px] font-bold text-[#727783] uppercase tracking-wider block mb-1">
+            Active Sessions
           </span>
           <span className="text-2xl font-bold text-[#006e25] font-mono flex items-center gap-1">
             <Users className="w-5 h-5" />
             {activeUsersCount}/{totalUsersCount}
+          </span>
+          <span className="text-xs font-mono text-[#0054a6] block mt-0.5">
+            Online Users
           </span>
         </div>
       </div>

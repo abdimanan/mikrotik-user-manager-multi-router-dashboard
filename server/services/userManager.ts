@@ -493,7 +493,8 @@ export class UserManagerService {
    */
   public async getRouterReports(
     router: RouterRecord,
-    date?: string
+    date?: string,
+    includeAllUsers: boolean = false
   ): Promise<{ reports: GlobalReportItem[]; simulated: boolean }> {
     const res = await connectionManager.execute(router, async (client) => {
       const sentences = await client.writeSentence(['/user-manager/session/print']);
@@ -569,7 +570,7 @@ export class UserManagerService {
         groups.set(key, existing);
       }
 
-      return Array.from(groups.values())
+      const rows = Array.from(groups.values())
         .sort((a, b) => b.date.localeCompare(a.date) || a.username.localeCompare(b.username))
         .map((g, idx): GlobalReportItem => {
           const totalBytes = g.downloadBytes + g.uploadBytes;
@@ -591,17 +592,57 @@ export class UserManagerService {
             sessionCount: g.sessionCount
           };
         });
+
+      return rows;
     });
 
+    let reports: GlobalReportItem[];
+    let simulated: boolean;
     if (res.success && res.data) {
-      return { reports: res.data, simulated: false };
+      reports = res.data;
+      simulated = false;
+    } else {
+      reports = db.getReports(router.id);
+      if (date) {
+        reports = reports.filter((r) => r.date === date);
+      }
+      simulated = true;
     }
 
-    let dbReports = db.getReports(router.id);
-    if (date) {
-      dbReports = dbReports.filter((r) => r.date === date);
+    // Include every account on the router for the selected day, not just
+    // the ones with a session, so 0-usage users still show up in the table
+    // and count toward the "active/total" denominator. Reuse getRouterUsers
+    // (the same call the Users Usage page relies on) as the source of truth
+    // for the full roster, rather than re-deriving it here - RouterOS's
+    // /user-manager/user/print listing isn't always reachable within this
+    // function's own connection, but getRouterUsers already handles that.
+    if (includeAllUsers && date) {
+      const usersResult = await this.getRouterUsers(router);
+      const usernamesWithData = new Set(reports.map((r) => r.username));
+      for (const u of usersResult.users) {
+        if (usernamesWithData.has(u.username)) continue;
+        reports.push({
+          id: `rep-${router.id}-${u.username}-${date}-zero`,
+          routerId: router.id,
+          routerName: router.name,
+          publicIp: router.publicIp,
+          date,
+          username: u.username,
+          group: u.group || u.profile || 'default',
+          active: 0,
+          uptime: formatDuration(0),
+          downloadBytes: 0,
+          uploadBytes: 0,
+          downloadFormatted: formatBytes(0),
+          uploadFormatted: formatBytes(0),
+          totalBandwidthFormatted: formatBytes(0),
+          sessionCount: 0
+        });
+      }
+      reports.sort((a, b) => a.username.localeCompare(b.username));
     }
-    return { reports: dbReports, simulated: true };
+
+    return { reports, simulated };
   }
 
   /**

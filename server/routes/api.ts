@@ -400,7 +400,7 @@ apiRouter.get('/routers/:id/reports', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Router not found' });
     }
     const date = typeof req.query.date === 'string' ? req.query.date : undefined;
-    const result = await userManagerService.getRouterReports(router, date);
+    const result = await userManagerService.getRouterReports(router, date, true);
     res.json({ success: true, reports: result.reports, simulated: result.simulated });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
