@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { RouterRecord, GlobalReportItem } from '../types';
-import { FileText, Download, Calendar, ArrowDown, ArrowUp, BarChart3, Filter, HardDrive } from 'lucide-react';
+import { FileText, Download, Calendar, ArrowDown, ArrowUp, BarChart3, Filter, HardDrive, Users } from 'lucide-react';
 import { api } from '../api';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { drawTotalSummaryFooter, getTableFinalY } from '../utils/pdfReport';
+import { formatMiB } from '../utils/bytes';
 
 interface ReportsViewProps {
   routers: RouterRecord[];
@@ -23,7 +27,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     setLoading(true);
     try {
       const res = await api.getRouterReports(
-        activeRouterId === 'all' ? undefined : activeRouterId
+        activeRouterId === 'all' ? undefined : activeRouterId,
+        selectedDate
       );
       setReports(res);
     } catch (e) {
@@ -42,11 +47,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   }, [activeRouterId, selectedDate]);
 
   const exportCSV = () => {
-    const headers = ['Router Name', 'Public IP', 'Username', 'Date', 'Uptime', 'Download', 'Upload', 'Total Bandwidth'];
+    const headers = ['Username', 'Group', 'Active', 'Date', 'Uptime', 'Download', 'Upload', 'Total Bandwidth'];
     const rows = reports.map((r) => [
-      `"${r.routerName}"`,
-      `"${r.publicIp}"`,
       `"${r.username}"`,
+      `"${r.group || 'default'}"`,
+      `"${r.active}"`,
       `"${r.date}"`,
       `"${r.uptime}"`,
       `"${r.downloadFormatted}"`,
@@ -64,10 +69,87 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     document.body.removeChild(link);
   };
 
-  // KPIs
+  // KPIs - decimal (1000-based) GB, matching how ISPs (e.g. Starlink) report usage
   const totalDownloadBytes = reports.reduce((acc, r) => acc + (r.downloadBytes || 0), 0);
   const totalUploadBytes = reports.reduce((acc, r) => acc + (r.uploadBytes || 0), 0);
-  const totalBandwidthGb = ((totalDownloadBytes + totalUploadBytes) / (1024 * 1024 * 1024)).toFixed(2);
+  const totalBandwidthGb = ((totalDownloadBytes + totalUploadBytes) / 1_000_000_000).toFixed(2);
+  const activeUsersCount = reports.filter((r) => r.active === 1).length;
+  const totalUsersCount = reports.length;
+
+  const exportPDF = () => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const routerLabel = activeRouterId === 'all' ? 'All Routers (Combined)' : (routers.find(r => r.id === activeRouterId)?.name || activeRouterId);
+
+    // Brand header band, matching the app's blue
+    doc.setFillColor(0, 61, 124);
+    doc.rect(0, 0, pageWidth, 26, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('MikroTik Usage & Daily Report', 14, 12);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`Date: ${selectedDate}   |   Router: ${routerLabel}`, 14, 20);
+
+    // KPI cards, mirroring the on-screen summary cards
+    const cardY = 33;
+    const cardHeight = 20;
+    const gap = 6;
+    const cardWidth = (pageWidth - 14 * 2 - gap * 3) / 4;
+    const cards: { label: string; value: string; color: [number, number, number] }[] = [
+      { label: 'TOTAL BANDWIDTH', value: `${totalBandwidthGb} GB`, color: [20, 29, 35] },
+      { label: 'TOTAL DOWNLOAD', value: `${(totalDownloadBytes / 1_000_000_000).toFixed(2)} GB`, color: [0, 61, 124] },
+      { label: 'TOTAL UPLOAD', value: `${(totalUploadBytes / 1_000_000_000).toFixed(2)} GB`, color: [0, 110, 37] },
+      { label: 'ACTIVE USERS', value: `${activeUsersCount}/${totalUsersCount}`, color: [0, 110, 37] }
+    ];
+    cards.forEach((card, i) => {
+      const x = 14 + i * (cardWidth + gap);
+      doc.setDrawColor(194, 198, 211);
+      doc.setFillColor(246, 250, 255);
+      doc.roundedRect(x, cardY, cardWidth, cardHeight, 2, 2, 'FD');
+      doc.setTextColor(114, 119, 131);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.text(card.label, x + 4, cardY + 7);
+      doc.setTextColor(card.color[0], card.color[1], card.color[2]);
+      doc.setFontSize(13);
+      doc.text(card.value, x + 4, cardY + 16);
+    });
+
+    const tableStartY = cardY + cardHeight + 8;
+    autoTable(doc, {
+      startY: tableStartY,
+      head: [['Username', 'Group', 'Active', 'Date', 'Uptime', 'Download', 'Upload', 'Total Bandwidth']],
+      body: reports.map((r) => [
+        r.username,
+        r.group || 'default',
+        `${r.active}`,
+        r.date,
+        r.uptime,
+        r.downloadFormatted,
+        r.uploadFormatted,
+        r.totalBandwidthFormatted
+      ]),
+      styles: { fontSize: 8, cellPadding: 3, valign: 'middle' },
+      headStyles: { fillColor: [0, 61, 124], textColor: 255 },
+      alternateRowStyles: { fillColor: [246, 250, 255] },
+      columnStyles: {
+        2: { halign: 'center' },
+        5: { textColor: [0, 61, 124], fontStyle: 'bold' },
+        6: { textColor: [0, 110, 37], fontStyle: 'bold' }
+      }
+    });
+
+    drawTotalSummaryFooter(doc, getTableFinalY(doc, tableStartY), {
+      downloadBytes: totalDownloadBytes,
+      uploadBytes: totalUploadBytes,
+      count: reports.filter((r) => r.active === 1).length,
+      countLabel: 'Active'
+    });
+
+    doc.save(`mikrotik-usage-report-${selectedDate}.pdf`);
+  };
 
   return (
     <div className="flex-1 flex flex-col space-y-5 max-w-[1440px] mx-auto">
@@ -120,17 +202,29 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             <Download className="w-4 h-4" />
             <span>Export CSV</span>
           </button>
+
+          {/* Export PDF Button */}
+          <button
+            onClick={exportPDF}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-[#e6eff8] border border-[#c2c6d3] text-[#003d7c] rounded-lg text-xs font-semibold transition-colors shadow-xs"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Export PDF</span>
+          </button>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-[#c2c6d3] rounded-xl p-4 shadow-xs">
           <span className="text-[11px] font-bold text-[#727783] uppercase tracking-wider block mb-1">
             Total Bandwidth
           </span>
-          <span className="text-2xl font-bold text-[#141d23] font-mono">
+          <span className="text-2xl font-bold text-[#141d23] font-mono block">
             {totalBandwidthGb} GB
+          </span>
+          <span className="text-xs font-mono text-[#0054a6] block mt-0.5">
+            {formatMiB(totalDownloadBytes + totalUploadBytes)}
           </span>
         </div>
 
@@ -140,7 +234,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </span>
           <span className="text-2xl font-bold text-[#003d7c] font-mono flex items-center gap-1">
             <ArrowDown className="w-5 h-5" />
-            {(totalDownloadBytes / (1024 * 1024 * 1024)).toFixed(2)} GB
+            {(totalDownloadBytes / 1_000_000_000).toFixed(2)} GB
+          </span>
+          <span className="text-xs font-mono text-[#0054a6] block mt-0.5">
+            {formatMiB(totalDownloadBytes)}
           </span>
         </div>
 
@@ -150,7 +247,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </span>
           <span className="text-2xl font-bold text-[#006e25] font-mono flex items-center gap-1">
             <ArrowUp className="w-5 h-5" />
-            {(totalUploadBytes / (1024 * 1024 * 1024)).toFixed(2)} GB
+            {(totalUploadBytes / 1_000_000_000).toFixed(2)} GB
+          </span>
+          <span className="text-xs font-mono text-[#0054a6] block mt-0.5">
+            {formatMiB(totalUploadBytes)}
+          </span>
+        </div>
+
+        <div className="bg-white border border-[#c2c6d3] rounded-xl p-4 shadow-xs">
+          <span className="text-[11px] font-bold text-[#727783] uppercase tracking-wider block mb-1">
+            Active Users
+          </span>
+          <span className="text-2xl font-bold text-[#006e25] font-mono flex items-center gap-1">
+            <Users className="w-5 h-5" />
+            {activeUsersCount}/{totalUsersCount}
           </span>
         </div>
       </div>
@@ -162,7 +272,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             <thead className="bg-[#e6eff8] border-b border-[#c2c6d3] text-[11px] font-bold text-[#727783] uppercase tracking-wider">
               <tr>
                 <th className="py-3 px-4">Username</th>
-                <th className="py-3 px-4">Router / Public IP</th>
+                <th className="py-3 px-4">Group</th>
+                <th className="py-3 px-4">Active</th>
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Uptime</th>
                 <th className="py-3 px-4">Download</th>
@@ -173,13 +284,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             <tbody className="divide-y divide-[#dbe4ed]">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-sm text-[#727783]">
+                  <td colSpan={8} className="py-8 text-center text-sm text-[#727783]">
                     Compiling daily usage logs...
                   </td>
                 </tr>
               ) : reports.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-sm text-[#727783]">
+                  <td colSpan={8} className="py-8 text-center text-sm text-[#727783]">
                     No report records found for this timeframe.
                   </td>
                 </tr>
@@ -190,12 +301,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                       {item.username}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="font-medium text-[#141d23] text-xs">
-                        {item.routerName}
-                      </div>
-                      <div className="font-mono text-[11px] text-[#727783]">
-                        {item.publicIp}
-                      </div>
+                      <span className="inline-block bg-[#e6eff8] text-[#003d7c] text-xs font-semibold px-2 py-0.5 rounded border border-[#c2c6d3]">
+                        {item.group || 'default'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs font-bold">
+                      <span className={item.active === 1 ? 'text-[#006e25]' : 'text-[#727783]'}>
+                        {item.active}
+                      </span>
                     </td>
                     <td className="py-3 px-4 text-xs text-[#727783]">
                       {item.date}

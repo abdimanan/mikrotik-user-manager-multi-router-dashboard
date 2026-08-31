@@ -10,6 +10,22 @@ interface RouterDetailViewProps {
   onOpenTerminal: (router: RouterRecord) => void;
 }
 
+function formatThroughput(mbps: number): string {
+  if (mbps >= 1) return `${mbps.toFixed(1)} Mbps`;
+  return `${(mbps * 1000).toFixed(1)} Kbps`;
+}
+
+// Builds a filled sparkline path from real sampled throughput readings -
+// flat/empty when there's genuinely no traffic, rather than a decorative
+// fake waveform.
+function buildSparklinePath(values: number[]): string {
+  if (values.length < 2) return 'M0,30 L100,30 Z';
+  const max = Math.max(...values, 0.0001);
+  const stepX = 100 / (values.length - 1);
+  const points = values.map((v, i) => `${(i * stepX).toFixed(1)},${(30 - (v / max) * 28).toFixed(1)}`);
+  return `M0,30 L${points.join(' L')} L100,30 Z`;
+}
+
 export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
   router,
   onBack,
@@ -17,18 +33,19 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
   onOpenTerminal
 }) => {
   const [syncing, setSyncing] = useState(false);
-  const [userStats, setUserStats] = useState({
-    totalUsers: 1245,
-    activeCount: 312,
-    expiredCount: 89,
-    voucherCount: 450
-  });
-  const [trafficRates, setTrafficRates] = useState({
-    downloadMbps: (45.2).toFixed(1),
-    uploadMbps: (12.8).toFixed(1)
-  });
+  const [liveRouter, setLiveRouter] = useState(router);
+  const [userStats, setUserStats] = useState<{
+    totalUsers: number;
+    activeCount: number;
+    expiredCount: number;
+    voucherCount: number;
+  } | null>(null);
+  const [liveTraffic, setLiveTraffic] = useState<{ downloadMbps: number; uploadMbps: number } | null>(null);
+  const [downloadHistory, setDownloadHistory] = useState<number[]>([]);
+  const [uploadHistory, setUploadHistory] = useState<number[]>([]);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  const isOnline = router.status === 'online';
+  const isOnline = liveRouter.status === 'online';
 
   const fetchRouterDetails = async () => {
     try {
@@ -37,36 +54,47 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
       const totalVouchers = vRes.reduce((acc, b) => acc + b.vouchers.length, 0);
 
       setUserStats({
-        totalUsers: uRes.totalCount || 1245,
-        activeCount: uRes.activeCount || 312,
-        expiredCount: uRes.expiredCount || 89,
-        voucherCount: totalVouchers > 0 ? totalVouchers : 450
+        totalUsers: uRes.totalCount,
+        activeCount: uRes.activeCount,
+        expiredCount: uRes.expiredCount,
+        voucherCount: totalVouchers
       });
     } catch (e) {
-      console.warn('Using cached telemetry for router detail view');
+      console.warn('Failed to fetch router user/voucher counts', e);
+    }
+  };
+
+  const fetchLiveStats = async () => {
+    try {
+      const res = await api.syncRouter(router.id);
+      setLiveRouter(res.router);
+      setLiveTraffic(res.liveStats || null);
+      setSyncError(res.error || null);
+      if (res.liveStats) {
+        setDownloadHistory((prev) => [...prev.slice(-19), res.liveStats!.downloadMbps]);
+        setUploadHistory((prev) => [...prev.slice(-19), res.liveStats!.uploadMbps]);
+      }
+    } catch (e) {
+      console.warn('Failed to sync live router telemetry', e);
     }
   };
 
   useEffect(() => {
+    setLiveRouter(router);
+    setDownloadHistory([]);
+    setUploadHistory([]);
     fetchRouterDetails();
+    fetchLiveStats();
 
-    // Live traffic oscillation simulation for dynamic chart feel
-    const interval = setInterval(() => {
-      if (isOnline) {
-        setTrafficRates({
-          downloadMbps: (40 + Math.random() * 12).toFixed(1),
-          uploadMbps: (10 + Math.random() * 6).toFixed(1)
-        });
-      }
-    }, 4000);
-
+    // Real telemetry poll (CPU/memory/throughput), not simulated
+    const interval = setInterval(fetchLiveStats, 10000);
     return () => clearInterval(interval);
-  }, [router.id, isOnline]);
+  }, [router.id]);
 
   const handleSync = async () => {
     setSyncing(true);
     try {
-      await api.syncRouter(router.id);
+      await fetchLiveStats();
       await fetchRouterDetails();
     } catch (e) {
       console.error('Sync error:', e);
@@ -75,10 +103,12 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
     }
   };
 
-  const cpuPercentage = router.cpuLoad || 15;
-  const memoryUsed = router.memoryUsedMb || 412;
-  const memoryTotal = router.memoryTotalMb || 1024;
-  const memoryPercentage = Math.round((memoryUsed / memoryTotal) * 100);
+  const hasCpuData = typeof liveRouter.cpuLoad === 'number';
+  const hasMemData = typeof liveRouter.memoryUsedMb === 'number' && typeof liveRouter.memoryTotalMb === 'number';
+  const cpuPercentage = liveRouter.cpuLoad ?? 0;
+  const memoryUsed = liveRouter.memoryUsedMb ?? 0;
+  const memoryTotal = liveRouter.memoryTotalMb || 1;
+  const memoryPercentage = hasMemData ? Math.round((memoryUsed / memoryTotal) * 100) : 0;
 
   return (
     <div className="flex-1 flex flex-col space-y-6 max-w-[1440px] mx-auto">
@@ -98,7 +128,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl md:text-3xl font-bold text-[#141d23] tracking-tight">
-              {router.name}
+              {liveRouter.name}
             </h1>
             {isOnline ? (
               <div className="flex items-center gap-1.5 bg-[#80f98b] text-[#007327] px-3 py-0.5 rounded-full border border-[#006e25]/20 font-bold text-xs">
@@ -115,15 +145,23 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
 
           <div className="flex items-center gap-2 text-xs text-[#424751]">
             <span className="material-symbols-outlined text-[16px] text-[#727783]">lan</span>
-            <span className="font-mono text-sm font-medium">{router.publicIp}</span>
+            <span className="font-mono text-sm font-medium">{liveRouter.publicIp}</span>
             <span className="text-[#c2c6d3]">•</span>
             <span className="font-mono text-xs">
-              {router.connectionType === 'api-ssl' ? 'API-SSL: 8729' : 'API: 8728'}
+              {liveRouter.connectionType === 'api-ssl' ? 'API-SSL: 8729' : 'API: 8728'}
             </span>
-            {router.location && (
+            {liveRouter.location && (
               <>
                 <span className="text-[#c2c6d3]">•</span>
-                <span>{router.location}</span>
+                <span>{liveRouter.location}</span>
+              </>
+            )}
+            {syncError && (
+              <>
+                <span className="text-[#c2c6d3]">•</span>
+                <span className="text-[#ba1a1a] font-medium" title={syncError}>
+                  {syncError}
+                </span>
               </>
             )}
           </div>
@@ -158,10 +196,10 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
             <span className="text-[11px] font-bold uppercase tracking-wider">RouterOS</span>
           </div>
           <div className="text-xl font-bold text-[#141d23] mt-1">
-            {router.routerOsVersion || 'v7.12.1'}
+            {liveRouter.routerOsVersion || '—'}
           </div>
           <div className="text-xs text-[#727783]">
-            Architecture: {router.architecture || 'ARM64'}
+            Architecture: {liveRouter.architecture || '—'}
           </div>
         </div>
 
@@ -172,7 +210,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
             <span className="text-[11px] font-bold uppercase tracking-wider">Uptime</span>
           </div>
           <div className="text-xl font-bold text-[#141d23] font-mono mt-1">
-            {router.uptime || '45d 12h 30m'}
+            {liveRouter.uptime || '—'}
           </div>
           <div className="text-xs text-[#727783]">Since last reboot</div>
         </div>
@@ -185,7 +223,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
               <span className="text-[11px] font-bold uppercase tracking-wider">CPU Load</span>
             </div>
             <span className="text-xl font-bold text-[#003d7c] font-mono">
-              {cpuPercentage}%
+              {hasCpuData ? `${cpuPercentage}%` : '—'}
             </span>
           </div>
           <div className="w-full h-2 bg-[#dbe4ed] rounded-full mt-auto mb-1 overflow-hidden">
@@ -197,7 +235,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                   ? 'bg-[#ffb691]'
                   : 'bg-[#0054a6]'
               }`}
-              style={{ width: `${Math.min(100, cpuPercentage)}%` }}
+              style={{ width: `${hasCpuData ? Math.min(100, cpuPercentage) : 0}%` }}
             ></div>
           </div>
         </div>
@@ -210,12 +248,12 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
               <span className="text-[11px] font-bold uppercase tracking-wider">Memory</span>
             </div>
             <span className="text-xl font-bold text-[#141d23] font-mono">
-              {memoryUsed} MB
+              {hasMemData ? `${memoryUsed} MB` : '—'}
             </span>
           </div>
           <div className="flex items-center justify-between text-xs text-[#727783] mt-auto mb-1">
-            <span>Used of {memoryTotal} MB</span>
-            <span className="font-mono">{memoryPercentage}%</span>
+            <span>{hasMemData ? `Used of ${memoryTotal} MB` : 'Not yet synced'}</span>
+            <span className="font-mono">{hasMemData ? `${memoryPercentage}%` : ''}</span>
           </div>
           <div className="w-full h-2 bg-[#dbe4ed] rounded-full overflow-hidden">
             <div
@@ -250,7 +288,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                 Total Users
               </span>
               <span className="text-2xl font-bold text-[#141d23] font-mono">
-                {userStats.totalUsers.toLocaleString()}
+                {userStats ? userStats.totalUsers.toLocaleString() : '—'}
               </span>
             </div>
 
@@ -260,7 +298,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                 Active Now
               </span>
               <span className="text-2xl font-bold text-[#006e25] font-mono">
-                {userStats.activeCount}
+                {userStats ? userStats.activeCount : '—'}
               </span>
             </div>
 
@@ -270,7 +308,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                 Expired
               </span>
               <span className="text-2xl font-bold text-[#ba1a1a] font-mono">
-                {userStats.expiredCount}
+                {userStats ? userStats.expiredCount : '—'}
               </span>
             </div>
 
@@ -280,7 +318,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                 Vouchers
               </span>
               <span className="text-2xl font-bold text-[#0054a6] font-mono">
-                {userStats.voucherCount}
+                {userStats ? userStats.voucherCount : '—'}
               </span>
             </div>
           </div>
@@ -308,7 +346,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                   <span>Download</span>
                 </span>
                 <span className="text-sm font-bold font-mono text-[#003d7c]">
-                  {trafficRates.downloadMbps} Mbps
+                  {liveTraffic ? formatThroughput(liveTraffic.downloadMbps) : '—'}
                 </span>
               </div>
               <div className="w-full h-12 bg-[#dbe4ed] rounded-md flex items-end overflow-hidden pt-1 px-1">
@@ -318,7 +356,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                   viewBox="0 0 100 30"
                 >
                   <path
-                    d="M0,30 L0,20 L10,15 L20,25 L30,10 L40,18 L50,5 L60,12 L70,8 L80,22 L90,15 L100,5 L100,30 Z"
+                    d={buildSparklinePath(downloadHistory)}
                     strokeWidth="2"
                     vectorEffect="non-scaling-stroke"
                   />
@@ -336,7 +374,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                   <span>Upload</span>
                 </span>
                 <span className="text-sm font-bold font-mono text-[#006e25]">
-                  {trafficRates.uploadMbps} Mbps
+                  {liveTraffic ? formatThroughput(liveTraffic.uploadMbps) : '—'}
                 </span>
               </div>
               <div className="w-full h-12 bg-[#dbe4ed] rounded-md flex items-end overflow-hidden pt-1 px-1">
@@ -346,7 +384,7 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
                   viewBox="0 0 100 30"
                 >
                   <path
-                    d="M0,30 L0,25 L10,28 L20,15 L30,20 L40,10 L50,18 L60,5 L70,12 L80,8 L90,15 L100,20 L100,30 Z"
+                    d={buildSparklinePath(uploadHistory)}
                     strokeWidth="2"
                     vectorEffect="non-scaling-stroke"
                   />

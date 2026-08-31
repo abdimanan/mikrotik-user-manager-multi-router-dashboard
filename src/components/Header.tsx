@@ -84,6 +84,18 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <button
+            onClick={() => onTabChange('usage')}
+            className={`px-3 py-1.5 rounded transition-colors flex items-center gap-2 text-sm font-medium ${
+              currentTab === 'usage'
+                ? 'bg-[#e6eff8] text-[#003d7c] font-semibold'
+                : 'text-[#424751] hover:bg-[#dbe4ed] hover:text-[#003d7c]'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[20px]">data_usage</span>
+            <span>Usage</span>
+          </button>
+
+          <button
             onClick={() => onTabChange('sessions')}
             className={`px-3 py-1.5 rounded transition-colors flex items-center gap-2 text-sm font-medium ${
               currentTab === 'sessions'

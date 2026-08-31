@@ -27,18 +27,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   loading
 }) => {
   const displayStats = stats || {
-    totalRouters: '1,024',
-    totalRoutersRaw: 1024,
-    onlineRouters: '982',
-    onlineRoutersRaw: 982,
-    offlineRouters: '42',
-    offlineRoutersRaw: 42,
-    totalUsers: '1,245',
-    totalUsersRaw: 1245,
-    activeUsers: '5,420',
-    activeUsersRaw: 5420,
-    expiredUsers: 89,
-    totalSessions: 312,
+    totalRouters: 0,
+    totalRoutersRaw: 0,
+    onlineRouters: 0,
+    onlineRoutersRaw: 0,
+    offlineRouters: 0,
+    offlineRoutersRaw: 0,
+    totalUsers: 0,
+    totalUsersRaw: 0,
+    activeUsers: 0,
+    activeUsersRaw: 0,
+    expiredUsers: 0,
+    totalSessions: 0,
     recentAlerts: alerts
   };
 

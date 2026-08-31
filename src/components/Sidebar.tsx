@@ -66,6 +66,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
 
         <button
+          onClick={() => onTabChange('usage')}
+          className={`flex items-center px-3 py-2 rounded-lg text-sm transition-colors text-left w-full ${
+            currentTab === 'usage'
+              ? 'bg-[#80f98b] text-[#007327] font-semibold'
+              : 'text-[#424751] hover:bg-[#dbe4ed] hover:text-[#003d7c]'
+          }`}
+        >
+          <span className="material-symbols-outlined mr-3 text-[20px]">data_usage</span>
+          <span>Users Usage</span>
+        </button>
+
+        <button
           onClick={() => onTabChange('sessions')}
           className={`flex items-center px-3 py-2 rounded-lg text-sm transition-colors text-left w-full ${
             currentTab === 'sessions'

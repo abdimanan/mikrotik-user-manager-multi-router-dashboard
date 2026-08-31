@@ -88,7 +88,7 @@ apiRouter.post('/routers/test-connection', async (req: Request, res: Response) =
 });
 
 // Add Router
-apiRouter.post('/routers', (req: Request, res: Response) => {
+apiRouter.post('/routers', async (req: Request, res: Response) => {
   try {
     const { name, publicIp, apiPort, connectionType, username, password, location } = req.body;
 
@@ -105,7 +105,7 @@ apiRouter.post('/routers', (req: Request, res: Response) => {
     // Securely encrypt password with AES-256-GCM
     const enc = encryptPassword(password || '');
 
-    const newRouter = db.addRouter({
+    let newRouter = db.addRouter({
       name,
       publicIp,
       apiPort: port,
@@ -114,16 +114,33 @@ apiRouter.post('/routers', (req: Request, res: Response) => {
       encryptedPassword: enc.encrypted,
       passwordIv: enc.iv,
       passwordTag: enc.tag,
-      status: 'online',
-      routerOsVersion: 'v7.12.1',
-      architecture: 'ARM64',
-      cpuLoad: 12,
-      memoryUsedMb: 380,
-      memoryTotalMb: 1024,
-      uptime: '0d 1h',
+      status: 'connecting',
       lastSeen: 'Just now',
       location: location || 'General Network'
     });
+
+    // Pull real telemetry immediately so the record reflects the actual
+    // router from the moment it's added, instead of placeholder numbers.
+    const fullRouter = db.getRouterById(newRouter.id, true);
+    if (fullRouter) {
+      const stats = await connectionManager.getSystemStats(fullRouter);
+      const updated = stats.success
+        ? db.updateRouter(newRouter.id, {
+            status: 'online',
+            cpuLoad: stats.cpuLoad,
+            memoryUsedMb: stats.memoryUsedMb,
+            memoryTotalMb: stats.memoryTotalMb,
+            uptime: stats.uptime,
+            routerOsVersion: stats.routerOsVersion,
+            architecture: stats.architecture,
+            lastSeen: 'Just now'
+          })
+        : db.updateRouter(newRouter.id, {
+            status: 'offline',
+            lastError: stats.error || 'Unable to reach router at creation time.'
+          });
+      if (updated) newRouter = updated;
+    }
 
     // Add alert
     db.addAlert({
@@ -218,19 +235,39 @@ apiRouter.post('/routers/:id/sync', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Router not found' });
     }
 
-    // Attempt live sync or update simulated counters
-    const newCpu = Math.floor(Math.random() * 35) + 8;
-    const newMem = Math.floor(Math.random() * 200) + 320;
+    const stats = await connectionManager.getSystemStats(router);
+
+    if (!stats.success) {
+      const updated = db.updateRouter(router.id, {
+        status: 'offline',
+        lastError: stats.error || 'Connection failed'
+      });
+      return res.json({
+        success: false,
+        router: updated,
+        error: stats.error || 'Unable to reach router.'
+      });
+    }
+
     const updated = db.updateRouter(router.id, {
-      cpuLoad: newCpu,
-      memoryUsedMb: newMem,
+      cpuLoad: stats.cpuLoad,
+      memoryUsedMb: stats.memoryUsedMb,
+      memoryTotalMb: stats.memoryTotalMb,
+      uptime: stats.uptime,
+      routerOsVersion: stats.routerOsVersion,
+      architecture: stats.architecture,
       lastSeen: 'Just now',
-      status: router.status === 'offline' ? 'online' : router.status
+      lastError: undefined,
+      status: 'online'
     });
 
     res.json({
       success: true,
       router: updated,
+      liveStats: {
+        downloadMbps: stats.downloadMbps,
+        uploadMbps: stats.uploadMbps
+      },
       message: `Synchronized telemetry with ${router.name} (${router.publicIp}).`
     });
   } catch (error: any) {
@@ -356,20 +393,36 @@ apiRouter.post('/routers/:id/vouchers/generate', (req: Request, res: Response) =
 });
 
 // Router-Specific Report
-apiRouter.get('/routers/:id/reports', (req: Request, res: Response) => {
+apiRouter.get('/routers/:id/reports', async (req: Request, res: Response) => {
   try {
-    const reports = db.getReports(req.params.id);
-    res.json({ success: true, reports });
+    const router = db.getRouterById(req.params.id, true);
+    if (!router) {
+      return res.status(404).json({ success: false, message: 'Router not found' });
+    }
+    const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const result = await userManagerService.getRouterReports(router, date);
+    res.json({ success: true, reports: result.reports, simulated: result.simulated });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 // Global Multi-Router Report
-apiRouter.get('/reports/global', (req: Request, res: Response) => {
+apiRouter.get('/reports/global', async (req: Request, res: Response) => {
   try {
-    const reports = db.getReports();
-    res.json({ success: true, reports });
+    const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const { routers } = db.getRouters(undefined, undefined, 0, 10000);
+
+    const results = await Promise.all(
+      routers.map(async (r) => {
+        const fullRouter = db.getRouterById(r.id, true);
+        if (!fullRouter) return [];
+        const result = await userManagerService.getRouterReports(fullRouter, date);
+        return result.reports;
+      })
+    );
+
+    res.json({ success: true, reports: results.flat() });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }

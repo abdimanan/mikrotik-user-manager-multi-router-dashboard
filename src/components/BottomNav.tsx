@@ -48,6 +48,19 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onTabChange })
         <span className="text-[11px] mt-0.5">Users</span>
       </button>
 
+      {/* Usage */}
+      <button
+        onClick={() => onTabChange('usage')}
+        className={`flex flex-col items-center justify-center px-4 py-1 rounded-full transition-all duration-200 ${
+          currentTab === 'usage'
+            ? 'bg-[#80f98b] text-[#007327] font-semibold'
+            : 'text-[#424751] hover:text-[#003d7c]'
+        }`}
+      >
+        <span className="material-symbols-outlined text-[22px]">data_usage</span>
+        <span className="text-[11px] mt-0.5">Usage</span>
+      </button>
+
       {/* Reports */}
       <button
         onClick={() => onTabChange('reports')}

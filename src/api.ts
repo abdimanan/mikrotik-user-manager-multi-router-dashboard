@@ -84,11 +84,18 @@ export const api = {
     if (!json.success) throw new Error(json.message || 'Failed to delete router');
   },
 
-  async syncRouter(id: string): Promise<RouterRecord> {
+  async syncRouter(id: string): Promise<{
+    router: RouterRecord;
+    liveStats?: { downloadMbps: number; uploadMbps: number };
+    error?: string;
+  }> {
     const res = await fetch(`${BASE_URL}/routers/${id}/sync`, { method: 'POST' });
     const json = await res.json();
-    if (!json.success) throw new Error(json.message || 'Failed to sync router');
-    return json.router;
+    return {
+      router: json.router,
+      liveStats: json.liveStats,
+      error: json.success ? undefined : (json.error || 'Failed to sync router')
+    };
   },
 
   async testConnection(data: {
@@ -197,8 +204,9 @@ export const api = {
     return json.batch;
   },
 
-  async getRouterReports(routerId?: string): Promise<GlobalReportItem[]> {
-    const url = routerId ? `${BASE_URL}/routers/${routerId}/reports` : `${BASE_URL}/reports/global`;
+  async getRouterReports(routerId?: string, date?: string): Promise<GlobalReportItem[]> {
+    const base = routerId ? `${BASE_URL}/routers/${routerId}/reports` : `${BASE_URL}/reports/global`;
+    const url = date ? `${base}?date=${encodeURIComponent(date)}` : base;
     const res = await fetch(url);
     const json = await res.json();
     if (!json.success) throw new Error(json.error || 'Failed to fetch reports');

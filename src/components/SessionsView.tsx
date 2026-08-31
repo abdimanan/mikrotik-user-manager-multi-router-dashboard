@@ -167,7 +167,7 @@ export const SessionsView: React.FC<SessionsViewProps> = ({
                     </td>
                     <td className="py-3 px-4 font-mono text-xs text-[#424751]">
                       <span className="bg-[#f6faff] px-2 py-0.5 rounded border border-[#dbe4ed]">
-                        {s.rateLimit || '50M/25M'}
+                        {s.rateLimit || '—'}
                       </span>
                     </td>
                     <td className="py-3 px-4">

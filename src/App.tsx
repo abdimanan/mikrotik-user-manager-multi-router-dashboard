@@ -7,6 +7,7 @@ import { DashboardView } from './components/DashboardView';
 import { RoutersView } from './components/RoutersView';
 import { RouterDetailView } from './components/RouterDetailView';
 import { UsersView } from './components/UsersView';
+import { UsersUsageView } from './components/UsersUsageView';
 import { SessionsView } from './components/SessionsView';
 import { VouchersView } from './components/VouchersView';
 import { ReportsView } from './components/ReportsView';
@@ -252,6 +253,14 @@ export default function App() {
 
           {currentTab === 'users' && (
             <UsersView
+              routers={routers}
+              selectedRouterId={selectedRouterId || undefined}
+              onSelectRouter={(id) => setSelectedRouterId(id)}
+            />
+          )}
+
+          {currentTab === 'usage' && (
+            <UsersUsageView
               routers={routers}
               selectedRouterId={selectedRouterId || undefined}
               onSelectRouter={(id) => setSelectedRouterId(id)}

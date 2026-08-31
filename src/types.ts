@@ -46,6 +46,7 @@ export interface UserManagerUser {
   username: string;
   password?: string;
   profile: string;
+  group?: string;
   status: 'active' | 'expired' | 'disabled' | 'pending';
   uptime: string;
   downloadBytes: number;
@@ -58,6 +59,16 @@ export interface UserManagerUser {
   macAddress?: string;
   comment?: string;
   price?: number;
+  // Data quota (from the user's assigned billing profile's limitation)
+  dataLimitBytes?: number;
+  dataLimitFormatted?: string;
+  periodUsedBytes?: number;
+  periodUsedFormatted?: string;
+  dataRemainingBytes?: number;
+  dataRemainingFormatted?: string;
+  percentUsed?: number;
+  quotaResetsAt?: string;
+  quotaResetInterval?: string;
 }
 
 export interface UserManagerSession {
@@ -122,6 +133,8 @@ export interface GlobalReportItem {
   publicIp: string;
   date: string;
   username: string;
+  group?: string;
+  active: number; // 1 if the user currently has an open session, 0 otherwise
   uptime: string;
   downloadBytes: number;
   uploadBytes: number;
@@ -142,4 +155,4 @@ export interface ConnectionTestResult {
   details?: string;
 }
 
-export type MainTab = 'dashboard' | 'routers' | 'users' | 'sessions' | 'vouchers' | 'reports' | 'settings';
+export type MainTab = 'dashboard' | 'routers' | 'users' | 'usage' | 'sessions' | 'vouchers' | 'reports' | 'settings';
