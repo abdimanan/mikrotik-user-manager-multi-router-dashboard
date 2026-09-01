@@ -16,9 +16,15 @@ import { TerminalModal } from './components/TerminalModal';
 import { FirewallGuideModal } from './components/FirewallGuideModal';
 import { AlertsModal } from './components/AlertsModal';
 import { VoucherPrintModal } from './components/VoucherPrintModal';
+import { LoginView } from './components/auth/LoginView';
+import { AccountsView } from './components/auth/AccountsView';
+import { LogsView } from './components/auth/LogsView';
+import { useAuth } from './context/AuthContext';
+import { canMutate, isSuperAdmin, canManageAccounts } from './utils/permissions';
 import { api } from './api';
 
 export default function App() {
+  const { user, loading: authLoading, logout } = useAuth();
   const [currentTab, setCurrentTab] = useState<MainTab>('dashboard');
   const [selectedRouterId, setSelectedRouterId] = useState<string | null>(null);
   const [selectedRouterForDetail, setSelectedRouterForDetail] = useState<RouterRecord | null>(null);
@@ -83,12 +89,12 @@ export default function App() {
   }, [searchQuery, statusFilter, currentPage, selectedRouterId]);
 
   useEffect(() => {
-    fetchGlobalData();
-  }, [fetchGlobalData]);
+    if (user) fetchGlobalData();
+  }, [fetchGlobalData, user]);
 
   useEffect(() => {
-    fetchRouters();
-  }, [fetchRouters]);
+    if (user) fetchRouters();
+  }, [fetchRouters, user]);
 
   // Handle router selection for detail view
   const handleSelectRouter = async (routerId: string) => {
@@ -162,6 +168,14 @@ export default function App() {
     }
   };
 
+  if (authLoading) {
+    return <div className="min-h-screen bg-[#f6faff]" />;
+  }
+
+  if (!user) {
+    return <LoginView />;
+  }
+
   return (
     <div className="min-h-screen bg-[#f6faff] flex flex-col antialiased text-[#141d23]">
       {/* Top Header */}
@@ -169,6 +183,8 @@ export default function App() {
         currentTab={currentTab}
         onTabChange={handleTabChange}
         alerts={alerts}
+        user={user}
+        onLogout={logout}
         onOpenAlerts={() => setShowAlertsModal(true)}
         onOpenFirewallGuide={() => setShowFirewallGuide(true)}
         onOpenAddRouter={() => {
@@ -181,6 +197,8 @@ export default function App() {
       <div className="flex-1 flex w-full">
         <Sidebar
           currentTab={currentTab}
+          isSuperAdmin={isSuperAdmin(user)}
+          canManageAccounts={canManageAccounts(user)}
           onTabChange={handleTabChange}
           onOpenFirewallGuide={() => setShowFirewallGuide(true)}
         />
@@ -191,6 +209,7 @@ export default function App() {
             <DashboardView
               stats={stats}
               alerts={alerts}
+              isSuperAdmin={isSuperAdmin(user)}
               onOpenAddRouter={() => {
                 setRouterToEdit(null);
                 setShowAddRouterModal(true);
@@ -213,6 +232,7 @@ export default function App() {
               {selectedRouterForDetail ? (
                 <RouterDetailView
                   router={selectedRouterForDetail}
+                  canMutate={canMutate(user)}
                   onBack={handleBackToRouters}
                   onNavigateToModule={handleNavigateToModule}
                   onOpenTerminal={(r) => setTerminalRouter(r)}
@@ -225,6 +245,8 @@ export default function App() {
                   totalPages={totalPages}
                   searchQuery={searchQuery}
                   statusFilter={statusFilter}
+                  isSuperAdmin={isSuperAdmin(user)}
+                  canMutate={canMutate(user)}
                   onSearchChange={(q) => {
                     setSearchQuery(q);
                     setCurrentPage(1);
@@ -255,6 +277,7 @@ export default function App() {
             <UsersView
               routers={routers}
               selectedRouterId={selectedRouterId || undefined}
+              canMutate={canMutate(user)}
               onSelectRouter={(id) => setSelectedRouterId(id)}
             />
           )}
@@ -271,6 +294,7 @@ export default function App() {
             <SessionsView
               routers={routers}
               selectedRouterId={selectedRouterId || undefined}
+              canMutate={canMutate(user)}
               onSelectRouter={(id) => setSelectedRouterId(id)}
             />
           )}
@@ -279,6 +303,7 @@ export default function App() {
             <VouchersView
               routers={routers}
               selectedRouterId={selectedRouterId || undefined}
+              canMutate={canMutate(user)}
               onOpenPrintModal={(batch) => setPrintVoucherBatch(batch)}
             />
           )}
@@ -289,6 +314,12 @@ export default function App() {
               selectedRouterId={selectedRouterId || undefined}
             />
           )}
+
+          {currentTab === 'accounts' && canManageAccounts(user) && (
+            <AccountsView routers={routers} currentUserId={user.id} isSuperAdmin={isSuperAdmin(user)} />
+          )}
+
+          {currentTab === 'logs' && isSuperAdmin(user) && <LogsView />}
         </main>
       </div>
 

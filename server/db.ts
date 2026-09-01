@@ -1,10 +1,17 @@
 import fs from 'fs';
 import path from 'path';
-import { RouterRecord, UserManagerUser, UserManagerSession, VoucherBatch, RouterAlert, GlobalReportItem } from './types.js';
+import SqliteDatabase from 'better-sqlite3';
+import { RouterRecord, UserManagerUser, UserManagerSession, VoucherBatch, RouterAlert, GlobalReportItem, AppUser, AuditLogEntry } from './types.js';
 import { encryptPassword } from './crypto.js';
+import { runMigrations } from './db/migrationRunner.js';
+import { migrations } from './db/migrations/index.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'database.json');
+const SQLITE_FILE = path.join(DATA_DIR, 'database.sqlite');
+// Pre-SQLite storage format. If present on first run (and no database.sqlite
+// exists yet), its contents are imported into SQLite once, then the file is
+// archived to `database.json.bak` rather than deleted.
+const LEGACY_JSON_FILE = path.join(DATA_DIR, 'database.json');
 
 interface DatabaseSchema {
   routers: RouterRecord[];
@@ -13,6 +20,7 @@ interface DatabaseSchema {
   users: UserManagerUser[];
   sessions: UserManagerSession[];
   reports: GlobalReportItem[];
+  appUsers: AppUser[];
   settings: {
     connectionTimeoutMs: number;
     encryptionSecretConfigured: boolean;
@@ -167,11 +175,16 @@ function generateInitialData(): DatabaseSchema {
 
   // Seed sample 1,024 routers mathematically or lazily for fast load
   for (let i = 4; i <= 35; i++) {
+    const id = `RT-${8800 + i}`;
+    // i=21 produces 'RT-8821', which collides with the explicit Branch-001
+    // router above - SQLite's PRIMARY KEY on routers.id rejects the duplicate.
+    if (initialRouters.some((r) => r.id === id)) continue;
+
     const padded = String(i).padStart(3, '0');
     const isOnline = i % 18 !== 0;
     const enc = encryptPassword(`Branch${padded}Pass!`);
     initialRouters.push({
-      id: `RT-${8800 + i}`,
+      id,
       name: `Branch-${padded}`,
       publicIp: `143.105.216.${10 + i}`,
       apiPort: i % 4 === 0 ? 8728 : 8729,
@@ -473,6 +486,7 @@ function generateInitialData(): DatabaseSchema {
     users: sampleUsers,
     sessions: sampleSessions,
     reports: sampleReports,
+    appUsers: [], // seeded separately by server/auth/seedSuperAdmin.ts
     settings: {
       connectionTimeoutMs: parseInt(process.env.DEFAULT_CONNECTION_TIMEOUT_MS || '5000', 10),
       encryptionSecretConfigured: true,
@@ -482,11 +496,179 @@ function generateInitialData(): DatabaseSchema {
   };
 }
 
+// SQLite stores every column as TEXT/INTEGER/REAL/NULL - these helpers convert
+// between that and the optional-field-rich TS shapes above. Boolean fields are
+// stored as 0/1; arrays/objects that don't merit their own table (RouterRecord.tags,
+// the `settings` blob) are stored as JSON text.
+function nullToUndefined<T>(v: T | null): T | undefined {
+  return v === null ? undefined : v;
+}
+
+function rowToRouter(row: any): RouterRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    publicIp: row.publicIp,
+    apiPort: row.apiPort,
+    connectionType: row.connectionType,
+    username: row.username,
+    encryptedPassword: row.encryptedPassword,
+    passwordIv: row.passwordIv,
+    passwordTag: row.passwordTag,
+    status: row.status,
+    routerOsVersion: nullToUndefined(row.routerOsVersion),
+    architecture: nullToUndefined(row.architecture),
+    cpuLoad: nullToUndefined(row.cpuLoad),
+    memoryUsedMb: nullToUndefined(row.memoryUsedMb),
+    memoryTotalMb: nullToUndefined(row.memoryTotalMb),
+    uptime: nullToUndefined(row.uptime),
+    lastSeen: nullToUndefined(row.lastSeen),
+    lastError: nullToUndefined(row.lastError),
+    createdDate: row.createdDate,
+    updatedDate: row.updatedDate,
+    location: nullToUndefined(row.location),
+    tags: row.tags ? JSON.parse(row.tags) : undefined
+  };
+}
+
+function rowToAlert(row: any): RouterAlert {
+  return {
+    id: row.id,
+    routerId: nullToUndefined(row.routerId),
+    routerName: nullToUndefined(row.routerName),
+    publicIp: nullToUndefined(row.publicIp),
+    title: row.title,
+    description: row.description,
+    severity: row.severity,
+    timestamp: row.timestamp,
+    timeAgo: row.timeAgo,
+    read: row.read === 1
+  };
+}
+
+function rowToUser(row: any): UserManagerUser {
+  return {
+    id: row.id,
+    routerId: row.routerId,
+    username: row.username,
+    password: nullToUndefined(row.password),
+    profile: row.profile,
+    group: nullToUndefined(row.group),
+    status: row.status,
+    uptime: row.uptime,
+    downloadBytes: row.downloadBytes,
+    uploadBytes: row.uploadBytes,
+    downloadFormatted: row.downloadFormatted,
+    uploadFormatted: row.uploadFormatted,
+    createdAt: row.createdAt,
+    expiresAt: nullToUndefined(row.expiresAt),
+    ipAddress: nullToUndefined(row.ipAddress),
+    macAddress: nullToUndefined(row.macAddress),
+    comment: nullToUndefined(row.comment),
+    price: nullToUndefined(row.price),
+    dataLimitBytes: nullToUndefined(row.dataLimitBytes),
+    dataLimitFormatted: nullToUndefined(row.dataLimitFormatted),
+    periodUsedBytes: nullToUndefined(row.periodUsedBytes),
+    periodUsedFormatted: nullToUndefined(row.periodUsedFormatted),
+    dataRemainingBytes: nullToUndefined(row.dataRemainingBytes),
+    dataRemainingFormatted: nullToUndefined(row.dataRemainingFormatted),
+    percentUsed: nullToUndefined(row.percentUsed),
+    quotaResetsAt: nullToUndefined(row.quotaResetsAt),
+    quotaResetInterval: nullToUndefined(row.quotaResetInterval)
+  };
+}
+
+function rowToSession(row: any): UserManagerSession {
+  return {
+    id: row.id,
+    routerId: row.routerId,
+    routerName: row.routerName,
+    username: row.username,
+    ipAddress: row.ipAddress,
+    macAddress: row.macAddress,
+    startTime: row.startTime,
+    uptime: row.uptime,
+    downloadBytes: row.downloadBytes,
+    uploadBytes: row.uploadBytes,
+    downloadFormatted: row.downloadFormatted,
+    uploadFormatted: row.uploadFormatted,
+    rateLimit: nullToUndefined(row.rateLimit),
+    status: row.status
+  };
+}
+
+function rowToReport(row: any): GlobalReportItem {
+  return {
+    id: row.id,
+    routerId: row.routerId,
+    routerName: row.routerName,
+    publicIp: row.publicIp,
+    date: row.date,
+    username: row.username,
+    group: nullToUndefined(row.group),
+    active: row.active,
+    uptime: row.uptime,
+    downloadBytes: row.downloadBytes,
+    uploadBytes: row.uploadBytes,
+    downloadFormatted: row.downloadFormatted,
+    uploadFormatted: row.uploadFormatted,
+    totalBandwidthFormatted: row.totalBandwidthFormatted,
+    sessionCount: row.sessionCount
+  };
+}
+
+function rowToVoucherCode(row: any): VoucherBatch['vouchers'][number] {
+  return {
+    code: row.code,
+    pin: row.pin,
+    profile: row.profile,
+    used: row.used === 1,
+    usedBy: nullToUndefined(row.usedBy),
+    usedDate: nullToUndefined(row.usedDate),
+    price: row.price,
+    timeLimit: row.timeLimit,
+    dataLimitFormatted: row.dataLimitFormatted
+  };
+}
+
+function rowToAppUser(row: any): AppUser {
+  return {
+    id: row.id,
+    username: row.username,
+    passwordHash: row.passwordHash,
+    role: row.role,
+    assignedRouterIds: row.assignedRouterIds ? JSON.parse(row.assignedRouterIds) : [],
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    lastLoginAt: nullToUndefined(row.lastLoginAt),
+    createdBy: nullToUndefined(row.createdBy)
+  };
+}
+
+function rowToAuditLog(row: any): AuditLogEntry {
+  return {
+    id: row.id,
+    userId: row.userId,
+    username: row.username,
+    role: row.role,
+    action: row.action,
+    targetType: row.targetType,
+    targetId: nullToUndefined(row.targetId),
+    detail: nullToUndefined(row.detail),
+    timestamp: row.timestamp
+  };
+}
+
 class Database {
   private data: DatabaseSchema;
+  private sqlite: SqliteDatabase.Database;
 
   constructor() {
     this.ensureDirectory();
+    this.sqlite = new SqliteDatabase(SQLITE_FILE);
+    this.sqlite.pragma('journal_mode = WAL');
+    runMigrations(this.sqlite, migrations);
     this.data = this.loadData();
   }
 
@@ -501,42 +683,242 @@ class Database {
   }
 
   private loadData(): DatabaseSchema {
-    try {
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        return JSON.parse(raw);
-      }
-    } catch (e) {
-      console.warn('Could not read existing database.json, initializing fresh data.', e);
+    const routerCount = (this.sqlite.prepare('SELECT COUNT(*) as c FROM routers').get() as { c: number }).c;
+    if (routerCount > 0) {
+      return this.readAll();
     }
-    const fresh = generateInitialData();
+
+    // First run against this SQLite file: import the legacy JSON store if one
+    // exists (so upgrading doesn't lose existing data), otherwise seed fresh.
+    let fresh: DatabaseSchema;
+    if (fs.existsSync(LEGACY_JSON_FILE)) {
+      try {
+        fresh = JSON.parse(fs.readFileSync(LEGACY_JSON_FILE, 'utf-8'));
+      } catch (e) {
+        console.warn('Could not read legacy database.json, initializing fresh data.', e);
+        fresh = generateInitialData();
+      }
+    } else {
+      fresh = generateInitialData();
+    }
+
+    // Migrations (e.g. the default super-admin seed) already wrote app_users
+    // directly, before loadData ever ran - preserve that instead of letting a
+    // legacy JSON's stale/missing appUsers field wipe it out below.
+    fresh.appUsers = (this.sqlite.prepare('SELECT * FROM app_users').all() as any[]).map(rowToAppUser);
+
     this.saveData(fresh);
+
+    if (fs.existsSync(LEGACY_JSON_FILE)) {
+      try {
+        fs.renameSync(LEGACY_JSON_FILE, `${LEGACY_JSON_FILE}.bak`);
+      } catch (e) {
+        console.warn('Could not archive legacy database.json:', e);
+      }
+    }
+
     return fresh;
   }
 
+  private readAll(): DatabaseSchema {
+    const routers = (this.sqlite.prepare('SELECT * FROM routers').all() as any[]).map(rowToRouter);
+    const alerts = (this.sqlite.prepare('SELECT * FROM alerts').all() as any[]).map(rowToAlert);
+    const users = (this.sqlite.prepare('SELECT * FROM users').all() as any[]).map(rowToUser);
+    const sessions = (this.sqlite.prepare('SELECT * FROM sessions').all() as any[]).map(rowToSession);
+    const reports = (this.sqlite.prepare('SELECT * FROM reports').all() as any[]).map(rowToReport);
+    const appUsers = (this.sqlite.prepare('SELECT * FROM app_users').all() as any[]).map(rowToAppUser);
+
+    const batchRows = this.sqlite.prepare('SELECT * FROM voucher_batches').all() as any[];
+    const codeRows = this.sqlite.prepare('SELECT * FROM voucher_codes ORDER BY batchId, idx').all() as any[];
+    const codesByBatch = new Map<string, VoucherBatch['vouchers']>();
+    for (const c of codeRows) {
+      const list = codesByBatch.get(c.batchId) || [];
+      list.push(rowToVoucherCode(c));
+      codesByBatch.set(c.batchId, list);
+    }
+    const vouchers: VoucherBatch[] = batchRows.map((b) => ({
+      id: b.id,
+      routerId: b.routerId,
+      batchName: b.batchName,
+      profile: b.profile,
+      quantity: b.quantity,
+      codeLength: b.codeLength,
+      prefix: b.prefix,
+      price: b.price,
+      timeLimit: b.timeLimit,
+      dataLimitMb: b.dataLimitMb,
+      createdDate: b.createdDate,
+      vouchers: codesByBatch.get(b.id) || []
+    }));
+
+    const settingsRow = this.sqlite.prepare("SELECT value FROM settings WHERE key = 'app'").get() as
+      | { value: string }
+      | undefined;
+    const settings = settingsRow ? JSON.parse(settingsRow.value) : generateInitialData().settings;
+
+    return { routers, alerts, vouchers, users, sessions, reports, appUsers, settings };
+  }
+
   private saveData(data: DatabaseSchema) {
+    const persist = this.sqlite.transaction((d: DatabaseSchema) => {
+      this.sqlite.exec(`
+        DELETE FROM routers;
+        DELETE FROM alerts;
+        DELETE FROM voucher_codes;
+        DELETE FROM voucher_batches;
+        DELETE FROM users;
+        DELETE FROM sessions;
+        DELETE FROM reports;
+        DELETE FROM app_users;
+      `);
+
+      const insertRouter = this.sqlite.prepare(`
+        INSERT INTO routers (id, name, publicIp, apiPort, connectionType, username, encryptedPassword, passwordIv, passwordTag, status, routerOsVersion, architecture, cpuLoad, memoryUsedMb, memoryTotalMb, uptime, lastSeen, lastError, createdDate, updatedDate, location, tags)
+        VALUES (@id, @name, @publicIp, @apiPort, @connectionType, @username, @encryptedPassword, @passwordIv, @passwordTag, @status, @routerOsVersion, @architecture, @cpuLoad, @memoryUsedMb, @memoryTotalMb, @uptime, @lastSeen, @lastError, @createdDate, @updatedDate, @location, @tags)
+      `);
+      for (const r of d.routers) {
+        insertRouter.run({
+          ...r,
+          routerOsVersion: r.routerOsVersion ?? null,
+          architecture: r.architecture ?? null,
+          cpuLoad: r.cpuLoad ?? null,
+          memoryUsedMb: r.memoryUsedMb ?? null,
+          memoryTotalMb: r.memoryTotalMb ?? null,
+          uptime: r.uptime ?? null,
+          lastSeen: r.lastSeen ?? null,
+          lastError: r.lastError ?? null,
+          location: r.location ?? null,
+          tags: r.tags ? JSON.stringify(r.tags) : null
+        });
+      }
+
+      const insertAlert = this.sqlite.prepare(`
+        INSERT INTO alerts (id, routerId, routerName, publicIp, title, description, severity, timestamp, timeAgo, read)
+        VALUES (@id, @routerId, @routerName, @publicIp, @title, @description, @severity, @timestamp, @timeAgo, @read)
+      `);
+      for (const a of d.alerts) {
+        insertAlert.run({
+          ...a,
+          routerId: a.routerId ?? null,
+          routerName: a.routerName ?? null,
+          publicIp: a.publicIp ?? null,
+          read: a.read ? 1 : 0
+        });
+      }
+
+      const insertBatch = this.sqlite.prepare(`
+        INSERT INTO voucher_batches (id, routerId, batchName, profile, quantity, codeLength, prefix, price, timeLimit, dataLimitMb, createdDate)
+        VALUES (@id, @routerId, @batchName, @profile, @quantity, @codeLength, @prefix, @price, @timeLimit, @dataLimitMb, @createdDate)
+      `);
+      const insertCode = this.sqlite.prepare(`
+        INSERT INTO voucher_codes (batchId, idx, code, pin, profile, used, usedBy, usedDate, price, timeLimit, dataLimitFormatted)
+        VALUES (@batchId, @idx, @code, @pin, @profile, @used, @usedBy, @usedDate, @price, @timeLimit, @dataLimitFormatted)
+      `);
+      for (const v of d.vouchers) {
+        const { vouchers: codes, ...batch } = v;
+        insertBatch.run(batch);
+        codes.forEach((c, idx) => {
+          insertCode.run({
+            ...c,
+            batchId: v.id,
+            idx,
+            used: c.used ? 1 : 0,
+            usedBy: c.usedBy ?? null,
+            usedDate: c.usedDate ?? null
+          });
+        });
+      }
+
+      const insertUser = this.sqlite.prepare(`
+        INSERT INTO users (id, routerId, username, password, profile, "group", status, uptime, downloadBytes, uploadBytes, downloadFormatted, uploadFormatted, createdAt, expiresAt, ipAddress, macAddress, comment, price, dataLimitBytes, dataLimitFormatted, periodUsedBytes, periodUsedFormatted, dataRemainingBytes, dataRemainingFormatted, percentUsed, quotaResetsAt, quotaResetInterval)
+        VALUES (@id, @routerId, @username, @password, @profile, @group, @status, @uptime, @downloadBytes, @uploadBytes, @downloadFormatted, @uploadFormatted, @createdAt, @expiresAt, @ipAddress, @macAddress, @comment, @price, @dataLimitBytes, @dataLimitFormatted, @periodUsedBytes, @periodUsedFormatted, @dataRemainingBytes, @dataRemainingFormatted, @percentUsed, @quotaResetsAt, @quotaResetInterval)
+      `);
+      for (const u of d.users) {
+        insertUser.run({
+          ...u,
+          password: u.password ?? null,
+          group: u.group ?? null,
+          expiresAt: u.expiresAt ?? null,
+          ipAddress: u.ipAddress ?? null,
+          macAddress: u.macAddress ?? null,
+          comment: u.comment ?? null,
+          price: u.price ?? null,
+          dataLimitBytes: u.dataLimitBytes ?? null,
+          dataLimitFormatted: u.dataLimitFormatted ?? null,
+          periodUsedBytes: u.periodUsedBytes ?? null,
+          periodUsedFormatted: u.periodUsedFormatted ?? null,
+          dataRemainingBytes: u.dataRemainingBytes ?? null,
+          dataRemainingFormatted: u.dataRemainingFormatted ?? null,
+          percentUsed: u.percentUsed ?? null,
+          quotaResetsAt: u.quotaResetsAt ?? null,
+          quotaResetInterval: u.quotaResetInterval ?? null
+        });
+      }
+
+      const insertSession = this.sqlite.prepare(`
+        INSERT INTO sessions (id, routerId, routerName, username, ipAddress, macAddress, startTime, uptime, downloadBytes, uploadBytes, downloadFormatted, uploadFormatted, rateLimit, status)
+        VALUES (@id, @routerId, @routerName, @username, @ipAddress, @macAddress, @startTime, @uptime, @downloadBytes, @uploadBytes, @downloadFormatted, @uploadFormatted, @rateLimit, @status)
+      `);
+      for (const s of d.sessions) {
+        insertSession.run({ ...s, rateLimit: s.rateLimit ?? null });
+      }
+
+      const insertReport = this.sqlite.prepare(`
+        INSERT INTO reports (id, routerId, routerName, publicIp, date, username, "group", active, uptime, downloadBytes, uploadBytes, downloadFormatted, uploadFormatted, totalBandwidthFormatted, sessionCount)
+        VALUES (@id, @routerId, @routerName, @publicIp, @date, @username, @group, @active, @uptime, @downloadBytes, @uploadBytes, @downloadFormatted, @uploadFormatted, @totalBandwidthFormatted, @sessionCount)
+      `);
+      for (const r of d.reports) {
+        insertReport.run({ ...r, group: r.group ?? null });
+      }
+
+      const insertAppUser = this.sqlite.prepare(`
+        INSERT INTO app_users (id, username, passwordHash, role, assignedRouterIds, status, createdAt, updatedAt, lastLoginAt, createdBy)
+        VALUES (@id, @username, @passwordHash, @role, @assignedRouterIds, @status, @createdAt, @updatedAt, @lastLoginAt, @createdBy)
+      `);
+      for (const u of d.appUsers) {
+        insertAppUser.run({
+          ...u,
+          assignedRouterIds: JSON.stringify(u.assignedRouterIds),
+          lastLoginAt: u.lastLoginAt ?? null,
+          createdBy: u.createdBy ?? null
+        });
+      }
+
+      this.sqlite
+        .prepare(`
+          INSERT INTO settings (key, value) VALUES ('app', @value)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        `)
+        .run({ value: JSON.stringify(d.settings) });
+    });
+
     try {
-      this.ensureDirectory();
-      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+      persist(data);
     } catch (e) {
-      console.error('Failed to write database.json:', e);
+      console.error('Failed to write to SQLite database:', e);
     }
   }
 
   // --- Router Methods ---
 
-  public getRouters(search?: string, status?: string, offset = 0, limit = 50): {
+  // `restrictToIds`, when passed, scopes the entire result (list + counts) to
+  // that router id set - used to limit an 'admin' role to their assigned
+  // routers. Leave undefined for unrestricted roles (super-admin, viewer).
+  public getRouters(search?: string, status?: string, offset = 0, limit = 50, restrictToIds?: string[]): {
     routers: RouterRecord[];
     total: number;
     onlineCount: number;
     offlineCount: number;
     warningCount: number;
   } {
-    let filtered = [...this.data.routers];
+    const scopeBase = restrictToIds
+      ? this.data.routers.filter(r => restrictToIds.includes(r.id))
+      : this.data.routers;
+    let filtered = [...scopeBase];
 
-    const onlineCount = this.data.routers.filter(r => r.status === 'online').length;
-    const offlineCount = this.data.routers.filter(r => r.status === 'offline').length;
-    const warningCount = this.data.routers.filter(r => r.status === 'warning').length;
+    const onlineCount = scopeBase.filter(r => r.status === 'online').length;
+    const offlineCount = scopeBase.filter(r => r.status === 'offline').length;
+    const warningCount = scopeBase.filter(r => r.status === 'warning').length;
 
     if (search && search.trim()) {
       const q = search.trim().toLowerCase();
@@ -677,7 +1059,10 @@ class Database {
 
   // --- Alerts Methods ---
 
-  public getAlerts(): RouterAlert[] {
+  public getAlerts(restrictToIds?: string[]): RouterAlert[] {
+    if (restrictToIds) {
+      return this.data.alerts.filter(a => a.routerId && restrictToIds.includes(a.routerId));
+    }
     return this.data.alerts;
   }
 
@@ -768,14 +1153,23 @@ class Database {
     return this.data.reports;
   }
 
-  public getGlobalStats() {
-    const totalRouters = this.data.routers.length;
-    const onlineRouters = this.data.routers.filter(r => r.status === 'online').length;
-    const offlineRouters = this.data.routers.filter(r => r.status === 'offline').length;
-    const totalUsers = this.data.users.length;
-    const activeUsers = this.data.users.filter(u => u.status === 'active').length;
-    const expiredUsers = this.data.users.filter(u => u.status === 'expired').length;
-    const totalSessions = this.data.sessions.length;
+  public getGlobalStats(restrictToIds?: string[]) {
+    const routers = restrictToIds ? this.data.routers.filter(r => restrictToIds.includes(r.id)) : this.data.routers;
+    const users = restrictToIds ? this.data.users.filter(u => restrictToIds.includes(u.routerId)) : this.data.users;
+    const sessions = restrictToIds
+      ? this.data.sessions.filter(s => restrictToIds.includes(s.routerId))
+      : this.data.sessions;
+    const alerts = restrictToIds
+      ? this.data.alerts.filter(a => a.routerId && restrictToIds.includes(a.routerId))
+      : this.data.alerts;
+
+    const totalRouters = routers.length;
+    const onlineRouters = routers.filter(r => r.status === 'online').length;
+    const offlineRouters = routers.filter(r => r.status === 'offline').length;
+    const totalUsers = users.length;
+    const activeUsers = users.filter(u => u.status === 'active').length;
+    const expiredUsers = users.filter(u => u.status === 'expired').length;
+    const totalSessions = sessions.length;
 
     return {
       totalRouters: totalRouters >= 1000 ? totalRouters.toLocaleString() : totalRouters,
@@ -790,8 +1184,116 @@ class Database {
       activeUsersRaw: activeUsers,
       expiredUsers,
       totalSessions,
-      recentAlerts: this.data.alerts.slice(0, 5)
+      recentAlerts: alerts.slice(0, 5)
     };
+  }
+
+  // --- App User (dashboard login account) Methods ---
+
+  public getAppUsers(): AppUser[] {
+    return this.data.appUsers;
+  }
+
+  public getAppUserByUsername(username: string): AppUser | null {
+    return this.data.appUsers.find(u => u.username === username) || null;
+  }
+
+  public getAppUserById(id: string): AppUser | null {
+    return this.data.appUsers.find(u => u.id === id) || null;
+  }
+
+  public addAppUser(user: Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>): AppUser {
+    const now = new Date().toISOString();
+    const newUser: AppUser = {
+      ...user,
+      id: `au-${Date.now()}`,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.data.appUsers.push(newUser);
+    this.saveData(this.data);
+    return newUser;
+  }
+
+  public updateAppUser(id: string, updates: Partial<AppUser>): AppUser | null {
+    const index = this.data.appUsers.findIndex(u => u.id === id);
+    if (index === -1) return null;
+
+    const updated: AppUser = {
+      ...this.data.appUsers[index],
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    this.data.appUsers[index] = updated;
+    this.saveData(this.data);
+    return updated;
+  }
+
+  // --- Audit Log Methods ---
+  // Read/written directly via SQL (see migration 003) - not part of the
+  // in-memory DatabaseSchema/full-snapshot pattern the other tables use.
+
+  public addAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): AuditLogEntry {
+    const newEntry: AuditLogEntry = {
+      ...entry,
+      id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString()
+    };
+    this.sqlite
+      .prepare(`
+        INSERT INTO audit_logs (id, userId, username, role, action, targetType, targetId, detail, timestamp)
+        VALUES (@id, @userId, @username, @role, @action, @targetType, @targetId, @detail, @timestamp)
+      `)
+      .run({
+        ...newEntry,
+        targetId: newEntry.targetId ?? null,
+        detail: newEntry.detail ?? null
+      });
+    return newEntry;
+  }
+
+  public getAuditLogs(
+    filters: { userId?: string; action?: string; targetType?: string; from?: string; to?: string } = {},
+    offset = 0,
+    limit = 100
+  ): { logs: AuditLogEntry[]; total: number } {
+    const conditions: string[] = [];
+    const params: Record<string, string> = {};
+
+    if (filters.userId) {
+      conditions.push('userId = @userId');
+      params.userId = filters.userId;
+    }
+    if (filters.action) {
+      conditions.push('action = @action');
+      params.action = filters.action;
+    }
+    if (filters.targetType) {
+      conditions.push('targetType = @targetType');
+      params.targetType = filters.targetType;
+    }
+    if (filters.from) {
+      conditions.push('timestamp >= @from');
+      params.from = filters.from;
+    }
+    if (filters.to) {
+      conditions.push('timestamp <= @to');
+      params.to = filters.to;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const total = (
+      this.sqlite.prepare(`SELECT COUNT(*) as c FROM audit_logs ${whereClause}`).get(params) as { c: number }
+    ).c;
+
+    const logs = (
+      this.sqlite
+        .prepare(`SELECT * FROM audit_logs ${whereClause} ORDER BY timestamp DESC LIMIT @limit OFFSET @offset`)
+        .all({ ...params, limit, offset }) as any[]
+    ).map(rowToAuditLog);
+
+    return { logs, total };
   }
 }
 

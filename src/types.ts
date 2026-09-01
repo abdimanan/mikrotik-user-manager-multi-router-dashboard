@@ -144,6 +144,32 @@ export interface GlobalReportItem {
   sessionCount: number;
 }
 
+export type AppRole = 'super-admin' | 'admin' | 'viewer' | 'scoped-viewer';
+
+export interface PublicAppUser {
+  id: string;
+  username: string;
+  role: AppRole;
+  assignedRouterIds: string[];
+  status: 'active' | 'disabled';
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+  createdBy?: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  userId: string;
+  username: string;
+  role: AppRole;
+  action: string;
+  targetType: string;
+  targetId?: string;
+  detail?: string;
+  timestamp: string;
+}
+
 export interface ConnectionTestResult {
   success: boolean;
   latencyMs: number;
@@ -155,4 +181,4 @@ export interface ConnectionTestResult {
   details?: string;
 }
 
-export type MainTab = 'dashboard' | 'routers' | 'users' | 'usage' | 'sessions' | 'vouchers' | 'reports' | 'settings';
+export type MainTab = 'dashboard' | 'routers' | 'users' | 'usage' | 'sessions' | 'vouchers' | 'reports' | 'accounts' | 'logs' | 'settings';

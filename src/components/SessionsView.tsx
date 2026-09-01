@@ -6,12 +6,14 @@ import { api } from '../api';
 interface SessionsViewProps {
   routers: RouterRecord[];
   selectedRouterId?: string;
+  canMutate: boolean;
   onSelectRouter: (routerId: string) => void;
 }
 
 export const SessionsView: React.FC<SessionsViewProps> = ({
   routers,
-  selectedRouterId
+  selectedRouterId,
+  canMutate
 }) => {
   const [activeRouterId, setActiveRouterId] = useState<string>(
     selectedRouterId || (routers[0]?.id || '')
@@ -181,14 +183,16 @@ export const SessionsView: React.FC<SessionsViewProps> = ({
                       </div>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => handleKillSession(s.id, s.username)}
-                        className="px-2.5 py-1 text-xs font-semibold text-[#ba1a1a] bg-[#ffdad6] hover:bg-[#ba1a1a] hover:text-white rounded transition-colors inline-flex items-center gap-1"
-                        title="Kill Session"
-                      >
-                        <UserMinus className="w-3 h-3" />
-                        <span>Kick</span>
-                      </button>
+                      {canMutate && (
+                        <button
+                          onClick={() => handleKillSession(s.id, s.username)}
+                          className="px-2.5 py-1 text-xs font-semibold text-[#ba1a1a] bg-[#ffdad6] hover:bg-[#ba1a1a] hover:text-white rounded transition-colors inline-flex items-center gap-1"
+                          title="Kill Session"
+                        >
+                          <UserMinus className="w-3 h-3" />
+                          <span>Kick</span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

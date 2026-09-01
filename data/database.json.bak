@@ -1,0 +1,84 @@
+{
+  "routers": [
+    {
+      "name": "branch-12434",
+      "publicIp": "154.155.200.249",
+      "apiPort": 8729,
+      "connectionType": "api-ssl",
+      "username": "cumar",
+      "encryptedPassword": "1e32cee28d97336690",
+      "passwordIv": "0f5c0184ab98a261905236eb",
+      "passwordTag": "5dfa2be107bfedcdee3566879e6214c9",
+      "status": "offline",
+      "lastSeen": "Just now",
+      "location": "Branch 01 - Main Office",
+      "id": "RT-3653",
+      "createdDate": "2026-08-31T08:30:48.061Z",
+      "updatedDate": "2026-08-31T08:31:24.575Z",
+      "lastError": "Connection timeout. Unable to reach 154.155.200.249:8729 (API-SSL). Verify firewall rules and IP reachability."
+    },
+    {
+      "id": "RT-8821",
+      "name": "Berbera-Server",
+      "publicIp": "143.105.216.249",
+      "apiPort": 8728,
+      "connectionType": "api",
+      "username": "admin",
+      "encryptedPassword": "38802f819d93",
+      "passwordIv": "46922afff8f98b1b3af90c90",
+      "passwordTag": "283230a5410831585d8f95a527f43ed7",
+      "status": "online",
+      "routerOsVersion": "7.23.2 (stable)",
+      "architecture": "mipsbe",
+      "cpuLoad": 7,
+      "memoryUsedMb": 60,
+      "memoryTotalMb": 128,
+      "uptime": "2d5h20m55s",
+      "lastSeen": "Just now",
+      "createdDate": "2026-07-16T11:56:27.436Z",
+      "updatedDate": "2026-08-30T15:10:58.386Z",
+      "location": "Branch 01 - Main Office"
+    }
+  ],
+  "alerts": [
+    {
+      "routerId": "RT-3653",
+      "routerName": "branch-12434",
+      "publicIp": "154.155.200.249",
+      "title": "Router Added: branch-12434",
+      "description": "Successfully provisioned branch-12434 (154.155.200.249) using API-SSL:8729.",
+      "severity": "info",
+      "id": "alt-1788165051064",
+      "timestamp": "2026-08-31T08:30:51.064Z",
+      "timeAgo": "Just now",
+      "read": false
+    }
+  ],
+  "vouchers": [],
+  "users": [
+    {
+      "routerId": "RT-3653",
+      "username": "abdimanan",
+      "password": "123456789",
+      "profile": "Staff-Unlimited",
+      "status": "active",
+      "uptime": "0s",
+      "downloadBytes": 0,
+      "uploadBytes": 0,
+      "downloadFormatted": "0 B",
+      "uploadFormatted": "0 B",
+      "createdAt": "2026-08-31",
+      "comment": "",
+      "ipAddress": "",
+      "id": "usr-1788165116689"
+    }
+  ],
+  "sessions": [],
+  "reports": [],
+  "settings": {
+    "connectionTimeoutMs": 5000,
+    "encryptionSecretConfigured": true,
+    "autoPollIntervalSec": 60,
+    "simulationFallback": true
+  }
+}

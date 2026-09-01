@@ -1,20 +1,7 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/acb6cadf-474b-4fcf-821b-88ac7f461ff8
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Roles & permission matrix — super-admin (full access, as today), admin (scoped to assigned router(s), can manage that router's users/vouchers/sessions/terminal), viewer (read-only + CSV/PDF export)
+- Data model additions — new AppUser type/collection, assignedAdminIds on RouterRecord
+- Planned folder structure — new server/auth/ module and src/components/auth/ (additive only, matches existing patterns, nothing existing moves)
+- How it sets up the logs feature you mentioned next (every action gets an actor id to attach a log line to)
+- SQLite migration plan — swaps the JSON-file Database class for better-sqlite3 internally, keeping the same method signatures so nothing else has to change
+- Open questions flagged for you to confirm before coding starts (JWT vs. session, one-router-vs-many-per-admin, viewer's report scope, whether "edit their users and stuff" includes vouchers/terminal)
+- 6 phases: (1) SQLite migration, (2) login/auth, (3) role enforcement + router scoping, (4) account management UI, (5) activity logs, (6) hardening

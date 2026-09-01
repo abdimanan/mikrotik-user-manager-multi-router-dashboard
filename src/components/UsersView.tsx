@@ -6,12 +6,14 @@ import { api } from '../api';
 interface UsersViewProps {
   routers: RouterRecord[];
   selectedRouterId?: string;
+  canMutate: boolean;
   onSelectRouter: (routerId: string) => void;
 }
 
 export const UsersView: React.FC<UsersViewProps> = ({
   routers,
   selectedRouterId,
+  canMutate,
   onSelectRouter
 }) => {
   const [activeRouterId, setActiveRouterId] = useState<string>(
@@ -127,13 +129,15 @@ export const UsersView: React.FC<UsersViewProps> = ({
             </select>
           </div>
 
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-[#003d7c] text-white rounded-lg text-sm font-semibold hover:bg-[#0054a6] transition-colors shadow-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add User</span>
-          </button>
+          {canMutate && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-[#003d7c] text-white rounded-lg text-sm font-semibold hover:bg-[#0054a6] transition-colors shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add User</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -243,13 +247,15 @@ export const UsersView: React.FC<UsersViewProps> = ({
                       <div className="text-[10px]">{user.macAddress || ''}</div>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => handleDeleteUser(user.id, user.username)}
-                        className="text-[#727783] hover:text-[#ba1a1a] p-1.5 hover:bg-[#ffdad6] rounded transition-colors"
-                        title="Delete User"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {canMutate && (
+                        <button
+                          onClick={() => handleDeleteUser(user.id, user.username)}
+                          className="text-[#727783] hover:text-[#ba1a1a] p-1.5 hover:bg-[#ffdad6] rounded transition-colors"
+                          title="Delete User"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

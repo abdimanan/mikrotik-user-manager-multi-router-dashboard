@@ -4,8 +4,16 @@ import { encryptPassword } from '../crypto.js';
 import { connectionManager } from '../services/connectionManager.js';
 import { userManagerService } from '../services/userManager.js';
 import { generateProjectZip } from '../services/zipExporter.js';
+import { requireRole, requireRouterAccess } from '../auth/authMiddleware.js';
+import { routerScopeFor } from '../auth/permissions.js';
+import { logAction } from '../auth/auditLog.js';
+import { accountsRouter } from './accounts.js';
+import { logsRouter } from './logs.js';
 
 export const apiRouter = express.Router();
+
+apiRouter.use('/accounts', accountsRouter);
+apiRouter.use('/logs', logsRouter);
 
 // Health check
 apiRouter.get('/health', (req: Request, res: Response) => {
@@ -19,7 +27,7 @@ apiRouter.get('/health', (req: Request, res: Response) => {
 // Global Dashboard Statistics
 apiRouter.get('/stats', (req: Request, res: Response) => {
   try {
-    const stats = db.getGlobalStats();
+    const stats = db.getGlobalStats(routerScopeFor(req.user!));
     res.json({ success: true, stats });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -35,7 +43,7 @@ apiRouter.get('/routers', (req: Request, res: Response) => {
     const limit = parseInt((req.query.limit as string) || '12', 10);
     const offset = (page - 1) * limit;
 
-    const result = db.getRouters(search, status, offset, limit);
+    const result = db.getRouters(search, status, offset, limit, routerScopeFor(req.user!));
 
     res.json({
       success: true,
@@ -59,7 +67,7 @@ apiRouter.get('/routers', (req: Request, res: Response) => {
 });
 
 // Test Connection (Stand-alone probe before saving)
-apiRouter.post('/routers/test-connection', async (req: Request, res: Response) => {
+apiRouter.post('/routers/test-connection', requireRole('super-admin'), async (req: Request, res: Response) => {
   try {
     const { publicIp, host, apiPort, connectionType, username, password } = req.body;
     const targetHost = publicIp || host;
@@ -88,7 +96,7 @@ apiRouter.post('/routers/test-connection', async (req: Request, res: Response) =
 });
 
 // Add Router
-apiRouter.post('/routers', async (req: Request, res: Response) => {
+apiRouter.post('/routers', requireRole('super-admin'), async (req: Request, res: Response) => {
   try {
     const { name, publicIp, apiPort, connectionType, username, password, location } = req.body;
 
@@ -152,6 +160,7 @@ apiRouter.post('/routers', async (req: Request, res: Response) => {
       severity: 'info'
     });
 
+    logAction(req, 'router.create', 'router', newRouter.id, `Added router "${newRouter.name}" (${newRouter.publicIp})`);
     res.status(201).json({ success: true, router: newRouter });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -159,10 +168,11 @@ apiRouter.post('/routers', async (req: Request, res: Response) => {
 });
 
 // Seed bulk routers for 1000+ benchmark testing
-apiRouter.post('/routers/seed-bulk', (req: Request, res: Response) => {
+apiRouter.post('/routers/seed-bulk', requireRole('super-admin'), (req: Request, res: Response) => {
   try {
     const count = parseInt(req.body.count || '100', 10);
     const total = db.seedBulkRouters(count);
+    logAction(req, 'router.seed_bulk', 'router', undefined, `Seeded ${count} bulk test routers (total now ${total})`);
     res.json({ success: true, count, totalRouters: total });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -170,7 +180,7 @@ apiRouter.post('/routers/seed-bulk', (req: Request, res: Response) => {
 });
 
 // Get Single Router Details
-apiRouter.get('/routers/:id', (req: Request, res: Response) => {
+apiRouter.get('/routers/:id', requireRouterAccess(), (req: Request, res: Response) => {
   try {
     const router = db.getRouterById(req.params.id);
     if (!router) {
@@ -183,7 +193,7 @@ apiRouter.get('/routers/:id', (req: Request, res: Response) => {
 });
 
 // Update Router
-apiRouter.put('/routers/:id', (req: Request, res: Response) => {
+apiRouter.put('/routers/:id', requireRole('super-admin', 'admin'), requireRouterAccess(), (req: Request, res: Response) => {
   try {
     const { name, publicIp, apiPort, connectionType, username, password, location, status } = req.body;
     const updates: any = {};
@@ -208,6 +218,7 @@ apiRouter.put('/routers/:id', (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Router not found' });
     }
 
+    logAction(req, 'router.update', 'router', updated.id, `Updated router "${updated.name}"`);
     res.json({ success: true, router: updated });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -215,12 +226,14 @@ apiRouter.put('/routers/:id', (req: Request, res: Response) => {
 });
 
 // Delete Router
-apiRouter.delete('/routers/:id', (req: Request, res: Response) => {
+apiRouter.delete('/routers/:id', requireRole('super-admin'), (req: Request, res: Response) => {
   try {
+    const routerToDelete = db.getRouterById(req.params.id);
     const deleted = db.deleteRouter(req.params.id);
     if (!deleted) {
       return res.status(404).json({ success: false, message: 'Router not found' });
     }
+    logAction(req, 'router.delete', 'router', req.params.id, `Deleted router "${routerToDelete?.name || req.params.id}"`);
     res.json({ success: true, message: 'Router deleted successfully' });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -228,7 +241,7 @@ apiRouter.delete('/routers/:id', (req: Request, res: Response) => {
 });
 
 // Sync Router (Live poll / Refresh)
-apiRouter.post('/routers/:id/sync', async (req: Request, res: Response) => {
+apiRouter.post('/routers/:id/sync', requireRole('super-admin', 'admin'), requireRouterAccess(), async (req: Request, res: Response) => {
   try {
     const router = db.getRouterById(req.params.id, true);
     if (!router) {
@@ -276,7 +289,7 @@ apiRouter.post('/routers/:id/sync', async (req: Request, res: Response) => {
 });
 
 // Router Users
-apiRouter.get('/routers/:id/users', async (req: Request, res: Response) => {
+apiRouter.get('/routers/:id/users', requireRouterAccess(), async (req: Request, res: Response) => {
   try {
     const router = db.getRouterById(req.params.id, true);
     if (!router) {
@@ -291,7 +304,7 @@ apiRouter.get('/routers/:id/users', async (req: Request, res: Response) => {
 });
 
 // Add User to Router
-apiRouter.post('/routers/:id/users', (req: Request, res: Response) => {
+apiRouter.post('/routers/:id/users', requireRole('super-admin', 'admin'), requireRouterAccess(), (req: Request, res: Response) => {
   try {
     const { username, password, profile, comment, price, ipAddress } = req.body;
     if (!username) {
@@ -315,6 +328,7 @@ apiRouter.post('/routers/:id/users', (req: Request, res: Response) => {
       ipAddress: ipAddress || ''
     });
 
+    logAction(req, 'user.create', 'user', newUser.id, `Added hotspot user "${newUser.username}" on router ${req.params.id}`);
     res.status(201).json({ success: true, user: newUser });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -322,9 +336,16 @@ apiRouter.post('/routers/:id/users', (req: Request, res: Response) => {
 });
 
 // Delete User
-apiRouter.delete('/routers/:id/users/:userId', (req: Request, res: Response) => {
+apiRouter.delete('/routers/:id/users/:userId', requireRole('super-admin', 'admin'), requireRouterAccess(), (req: Request, res: Response) => {
   try {
+    const targetUser = db.getUsers(req.params.id).find(u => u.id === req.params.userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found on this router' });
+    }
     const deleted = db.deleteUser(req.params.userId);
+    if (deleted) {
+      logAction(req, 'user.delete', 'user', req.params.userId, `Deleted hotspot user "${targetUser.username}" on router ${req.params.id}`);
+    }
     res.json({ success: deleted });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -332,7 +353,7 @@ apiRouter.delete('/routers/:id/users/:userId', (req: Request, res: Response) => 
 });
 
 // Router Active Sessions
-apiRouter.get('/routers/:id/sessions', async (req: Request, res: Response) => {
+apiRouter.get('/routers/:id/sessions', requireRouterAccess(), async (req: Request, res: Response) => {
   try {
     const router = db.getRouterById(req.params.id, true);
     if (!router) {
@@ -347,9 +368,16 @@ apiRouter.get('/routers/:id/sessions', async (req: Request, res: Response) => {
 });
 
 // Disconnect / Kill Session
-apiRouter.post('/routers/:id/sessions/:sessionId/kill', (req: Request, res: Response) => {
+apiRouter.post('/routers/:id/sessions/:sessionId/kill', requireRole('super-admin', 'admin'), requireRouterAccess(), (req: Request, res: Response) => {
   try {
+    const targetSession = db.getSessions(req.params.id).find(s => s.id === req.params.sessionId);
+    if (!targetSession) {
+      return res.status(404).json({ success: false, message: 'Session not found on this router' });
+    }
     const success = db.killSession(req.params.sessionId);
+    if (success) {
+      logAction(req, 'session.kill', 'session', req.params.sessionId, `Killed session for "${targetSession.username}" on router ${req.params.id}`);
+    }
     res.json({
       success,
       message: success ? 'Session terminated on MikroTik router.' : 'Session not found'
@@ -360,7 +388,7 @@ apiRouter.post('/routers/:id/sessions/:sessionId/kill', (req: Request, res: Resp
 });
 
 // Router Vouchers
-apiRouter.get('/routers/:id/vouchers', (req: Request, res: Response) => {
+apiRouter.get('/routers/:id/vouchers', requireRouterAccess(), (req: Request, res: Response) => {
   try {
     const vouchers = db.getVouchers(req.params.id);
     res.json({ success: true, vouchers });
@@ -370,7 +398,7 @@ apiRouter.get('/routers/:id/vouchers', (req: Request, res: Response) => {
 });
 
 // Generate Vouchers Batch
-apiRouter.post('/routers/:id/vouchers/generate', (req: Request, res: Response) => {
+apiRouter.post('/routers/:id/vouchers/generate', requireRole('super-admin', 'admin'), requireRouterAccess(), (req: Request, res: Response) => {
   try {
     const { batchName, profile, quantity, codeLength, prefix, price, timeLimit, dataLimitMb } = req.body;
 
@@ -386,6 +414,7 @@ apiRouter.post('/routers/:id/vouchers/generate', (req: Request, res: Response) =
       dataLimitMb: parseInt(dataLimitMb || '1024', 10)
     });
 
+    logAction(req, 'voucher.generate', 'voucher', batch.id, `Generated ${batch.vouchers.length} vouchers ("${batch.batchName}") on router ${req.params.id}`);
     res.status(201).json({ success: true, batch });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -393,7 +422,7 @@ apiRouter.post('/routers/:id/vouchers/generate', (req: Request, res: Response) =
 });
 
 // Router-Specific Report
-apiRouter.get('/routers/:id/reports', async (req: Request, res: Response) => {
+apiRouter.get('/routers/:id/reports', requireRouterAccess(), async (req: Request, res: Response) => {
   try {
     const router = db.getRouterById(req.params.id, true);
     if (!router) {
@@ -411,7 +440,7 @@ apiRouter.get('/routers/:id/reports', async (req: Request, res: Response) => {
 apiRouter.get('/reports/global', async (req: Request, res: Response) => {
   try {
     const date = typeof req.query.date === 'string' ? req.query.date : undefined;
-    const { routers } = db.getRouters(undefined, undefined, 0, 10000);
+    const { routers } = db.getRouters(undefined, undefined, 0, 10000, routerScopeFor(req.user!));
 
     const results = await Promise.all(
       routers.map(async (r) => {
@@ -431,7 +460,7 @@ apiRouter.get('/reports/global', async (req: Request, res: Response) => {
 // Alerts
 apiRouter.get('/alerts', (req: Request, res: Response) => {
   try {
-    const alerts = db.getAlerts();
+    const alerts = db.getAlerts(routerScopeFor(req.user!));
     res.json({ success: true, alerts });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -439,7 +468,7 @@ apiRouter.get('/alerts', (req: Request, res: Response) => {
 });
 
 // Download Project ZIP Deliverable
-apiRouter.get('/download/project-zip', async (req: Request, res: Response) => {
+apiRouter.get('/download/project-zip', requireRole('super-admin'), async (req: Request, res: Response) => {
   try {
     const zipBuffer = await generateProjectZip();
     res.setHeader('Content-Type', 'application/zip');

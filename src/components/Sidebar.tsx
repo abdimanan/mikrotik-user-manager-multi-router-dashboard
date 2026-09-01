@@ -1,16 +1,20 @@
 import React from 'react';
 import { MainTab } from '../types';
-import { Download, ShieldCheck, Database, Sliders } from 'lucide-react';
+import { Download, ShieldCheck, Database, Sliders, Users2, ScrollText } from 'lucide-react';
 import { api } from '../api';
 
 interface SidebarProps {
   currentTab: MainTab;
+  isSuperAdmin: boolean;
+  canManageAccounts: boolean;
   onTabChange: (tab: MainTab) => void;
   onOpenFirewallGuide: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
+  isSuperAdmin,
+  canManageAccounts,
   onTabChange,
   onOpenFirewallGuide
 }) => {
@@ -112,6 +116,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="material-symbols-outlined mr-3 text-[20px]">analytics</span>
           <span>Usage Reports</span>
         </button>
+
+        {(canManageAccounts || isSuperAdmin) && (
+          <>
+            <div className="px-3 pt-4 pb-2 mb-1 mt-2 border-b border-[#dbe4ed]">
+              <span className="text-[11px] font-bold text-[#727783] uppercase tracking-wider">
+                Administration
+              </span>
+            </div>
+
+            {canManageAccounts && (
+              <button
+                onClick={() => onTabChange('accounts')}
+                className={`flex items-center px-3 py-2 rounded-lg text-sm transition-colors text-left w-full ${
+                  currentTab === 'accounts'
+                    ? 'bg-[#80f98b] text-[#007327] font-semibold'
+                    : 'text-[#424751] hover:bg-[#dbe4ed] hover:text-[#003d7c]'
+                }`}
+              >
+                <Users2 className="w-[20px] h-[20px] mr-3" />
+                <span>Accounts</span>
+              </button>
+            )}
+
+            {isSuperAdmin && (
+              <button
+                onClick={() => onTabChange('logs')}
+                className={`flex items-center px-3 py-2 rounded-lg text-sm transition-colors text-left w-full ${
+                  currentTab === 'logs'
+                    ? 'bg-[#80f98b] text-[#007327] font-semibold'
+                    : 'text-[#424751] hover:bg-[#dbe4ed] hover:text-[#003d7c]'
+                }`}
+              >
+                <ScrollText className="w-[20px] h-[20px] mr-3" />
+                <span>Activity Logs</span>
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       {/* Bottom system actions */}
@@ -124,13 +166,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>Firewall & API-SSL</span>
         </button>
 
-        <a
-          href={api.getDownloadZipUrl()}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded text-xs text-[#0054a6] bg-[#e6eff8] hover:bg-[#dbe4ed] font-medium transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          <span>Export Complete ZIP</span>
-        </a>
+        {isSuperAdmin && (
+          <a
+            href={api.getDownloadZipUrl()}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded text-xs text-[#0054a6] bg-[#e6eff8] hover:bg-[#dbe4ed] font-medium transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export Complete ZIP</span>
+          </a>
+        )}
 
         <div className="px-3 pt-2 text-[11px] text-[#727783] flex items-center justify-between">
           <span>Node.js RouterOS v7/v6</span>

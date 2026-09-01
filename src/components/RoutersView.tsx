@@ -13,6 +13,8 @@ interface RoutersViewProps {
   onStatusFilterChange: (status: string) => void;
   onPageChange: (page: number) => void;
   onSelectRouter: (routerId: string) => void;
+  isSuperAdmin: boolean;
+  canMutate: boolean;
   onOpenAddRouter: () => void;
   onOpenEditRouter: (router: RouterRecord) => void;
   onDeleteRouter: (routerId: string, name: string) => void;
@@ -27,6 +29,8 @@ export const RoutersView: React.FC<RoutersViewProps> = ({
   totalPages,
   searchQuery,
   statusFilter,
+  isSuperAdmin,
+  canMutate,
   onSearchChange,
   onStatusFilterChange,
   onPageChange,
@@ -132,13 +136,15 @@ export const RoutersView: React.FC<RoutersViewProps> = ({
             </div>
 
             {/* Add Router Button (Desktop) */}
-            <button
-              onClick={onOpenAddRouter}
-              className="hidden md:flex items-center justify-center gap-2 px-4 py-2 bg-[#003d7c] text-white rounded-lg text-sm font-semibold hover:bg-[#0054a6] transition-colors h-9 shadow-xs"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Router</span>
-            </button>
+            {isSuperAdmin && (
+              <button
+                onClick={onOpenAddRouter}
+                className="hidden md:flex items-center justify-center gap-2 px-4 py-2 bg-[#003d7c] text-white rounded-lg text-sm font-semibold hover:bg-[#0054a6] transition-colors h-9 shadow-xs"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Router</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -168,15 +174,19 @@ export const RoutersView: React.FC<RoutersViewProps> = ({
           <p className="text-sm text-[#424751] mt-1 mb-6">
             {searchQuery
               ? `No MikroTik devices matched "${searchQuery}".`
-              : 'Add your first MikroTik router to start monitoring.'}
+              : isSuperAdmin
+              ? 'Add your first MikroTik router to start monitoring.'
+              : 'No routers are assigned to your account yet.'}
           </p>
-          <button
-            onClick={onOpenAddRouter}
-            className="px-4 py-2 bg-[#003d7c] hover:bg-[#0054a6] text-white text-sm font-semibold rounded-lg inline-flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Router</span>
-          </button>
+          {isSuperAdmin && (
+            <button
+              onClick={onOpenAddRouter}
+              className="px-4 py-2 bg-[#003d7c] hover:bg-[#0054a6] text-white text-sm font-semibold rounded-lg inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Router</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -236,36 +246,42 @@ export const RoutersView: React.FC<RoutersViewProps> = ({
 
                     {activeMenuId === router.id && (
                       <div className="absolute right-0 mt-1 w-36 bg-white border border-[#c2c6d3] rounded-lg shadow-lg z-20 py-1 text-xs">
-                        <button
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onSyncRouter(router.id);
-                          }}
-                          className="w-full text-left px-3 py-2 hover:bg-[#e6eff8] flex items-center gap-2 text-[#141d23]"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          <span>Sync Telemetry</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onOpenEditRouter(router);
-                          }}
-                          className="w-full text-left px-3 py-2 hover:bg-[#e6eff8] flex items-center gap-2 text-[#141d23]"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          <span>Edit Config</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onDeleteRouter(router.id, router.name);
-                          }}
-                          className="w-full text-left px-3 py-2 hover:bg-[#ffdad6] flex items-center gap-2 text-[#ba1a1a]"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Delete</span>
-                        </button>
+                        {canMutate && (
+                          <button
+                            onClick={() => {
+                              setActiveMenuId(null);
+                              onSyncRouter(router.id);
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-[#e6eff8] flex items-center gap-2 text-[#141d23]"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Sync Telemetry</span>
+                          </button>
+                        )}
+                        {canMutate && (
+                          <button
+                            onClick={() => {
+                              setActiveMenuId(null);
+                              onOpenEditRouter(router);
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-[#e6eff8] flex items-center gap-2 text-[#141d23]"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>Edit Config</span>
+                          </button>
+                        )}
+                        {isSuperAdmin && (
+                          <button
+                            onClick={() => {
+                              setActiveMenuId(null);
+                              onDeleteRouter(router.id, router.name);
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-[#ffdad6] flex items-center gap-2 text-[#ba1a1a]"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -318,19 +334,23 @@ export const RoutersView: React.FC<RoutersViewProps> = ({
 
                 {/* Bottom Card Actions */}
                 <div className="flex justify-end gap-2 border-t border-[#dbe4ed] pt-3 mt-auto relative z-10">
-                  <button
-                    onClick={() => onDeleteRouter(router.id, router.name)}
-                    className="px-3 h-8 flex items-center justify-center text-xs font-medium text-[#727783] hover:text-[#ba1a1a] hover:bg-[#ffdad6] rounded transition-colors"
-                  >
-                    Delete
-                  </button>
+                  {isSuperAdmin && (
+                    <button
+                      onClick={() => onDeleteRouter(router.id, router.name)}
+                      className="px-3 h-8 flex items-center justify-center text-xs font-medium text-[#727783] hover:text-[#ba1a1a] hover:bg-[#ffdad6] rounded transition-colors"
+                    >
+                      Delete
+                    </button>
+                  )}
 
-                  <button
-                    onClick={() => onOpenEditRouter(router)}
-                    className="px-3 h-8 flex items-center justify-center text-xs font-medium text-[#003d7c] hover:bg-[#003d7c]/10 rounded transition-colors"
-                  >
-                    Edit
-                  </button>
+                  {canMutate && (
+                    <button
+                      onClick={() => onOpenEditRouter(router)}
+                      className="px-3 h-8 flex items-center justify-center text-xs font-medium text-[#003d7c] hover:bg-[#003d7c]/10 rounded transition-colors"
+                    >
+                      Edit
+                    </button>
+                  )}
 
                   <button
                     onClick={() => onSelectRouter(router.id)}
@@ -394,12 +414,14 @@ export const RoutersView: React.FC<RoutersViewProps> = ({
       )}
 
       {/* Floating Action Button (Mobile Only) */}
-      <button
-        onClick={onOpenAddRouter}
-        className="md:hidden fixed bottom-20 right-4 w-14 h-14 bg-[#003d7c] text-white rounded-2xl flex items-center justify-center shadow-lg hover:bg-[#0054a6] transition-all z-40 active:scale-95"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+      {isSuperAdmin && (
+        <button
+          onClick={onOpenAddRouter}
+          className="md:hidden fixed bottom-20 right-4 w-14 h-14 bg-[#003d7c] text-white rounded-2xl flex items-center justify-center shadow-lg hover:bg-[#0054a6] transition-all z-40 active:scale-95"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
     </div>
   );
 };

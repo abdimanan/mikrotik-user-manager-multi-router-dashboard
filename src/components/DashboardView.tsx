@@ -6,6 +6,7 @@ import { api } from '../api';
 interface DashboardViewProps {
   stats: GlobalStats | null;
   alerts: RouterAlert[];
+  isSuperAdmin: boolean;
   onOpenAddRouter: () => void;
   onNavigateToRouters: (statusFilter?: string) => void;
   onNavigateToReports: () => void;
@@ -18,6 +19,7 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   stats,
   alerts,
+  isSuperAdmin,
   onOpenAddRouter,
   onNavigateToRouters,
   onNavigateToReports,
@@ -224,13 +226,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </p>
 
               <div className="space-y-2.5">
-                <button
-                  onClick={onOpenAddRouter}
-                  className="w-full bg-[#003d7c] hover:bg-[#0054a6] text-white text-sm font-semibold h-10 px-4 rounded flex items-center justify-center gap-2 transition-colors shadow-xs"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Router</span>
-                </button>
+                {isSuperAdmin && (
+                  <button
+                    onClick={onOpenAddRouter}
+                    className="w-full bg-[#003d7c] hover:bg-[#0054a6] text-white text-sm font-semibold h-10 px-4 rounded flex items-center justify-center gap-2 transition-colors shadow-xs"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Router</span>
+                  </button>
+                )}
 
                 <button
                   onClick={onNavigateToReports}
@@ -240,14 +244,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <span>Generate Global Report</span>
                 </button>
 
-                <button
-                  onClick={onSeedBulk}
-                  className="w-full bg-white hover:bg-[#f6faff] border border-dashed border-[#0054a6] text-[#0054a6] text-sm font-semibold h-10 px-4 rounded flex items-center justify-center gap-2 transition-colors"
-                  title="Generate realistic simulated routers to test 1,000+ router scaling"
-                >
-                  <Database className="w-4 h-4" />
-                  <span>Test 1,000+ Router Fleet</span>
-                </button>
+                {isSuperAdmin && (
+                  <button
+                    onClick={onSeedBulk}
+                    className="w-full bg-white hover:bg-[#f6faff] border border-dashed border-[#0054a6] text-[#0054a6] text-sm font-semibold h-10 px-4 rounded flex items-center justify-center gap-2 transition-colors"
+                    title="Generate realistic simulated routers to test 1,000+ router scaling"
+                  >
+                    <Database className="w-4 h-4" />
+                    <span>Test 1,000+ Router Fleet</span>
+                  </button>
+                )}
               </div>
             </div>
 

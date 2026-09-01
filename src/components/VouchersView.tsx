@@ -6,12 +6,14 @@ import { api } from '../api';
 interface VouchersViewProps {
   routers: RouterRecord[];
   selectedRouterId?: string;
+  canMutate: boolean;
   onOpenPrintModal: (batch: VoucherBatch) => void;
 }
 
 export const VouchersView: React.FC<VouchersViewProps> = ({
   routers,
   selectedRouterId,
+  canMutate,
   onOpenPrintModal
 }) => {
   const [activeRouterId, setActiveRouterId] = useState<string>(
@@ -110,13 +112,15 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
             </select>
           </div>
 
-          <button
-            onClick={() => setShowGenerateModal(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-[#003d7c] text-white rounded-lg text-sm font-semibold hover:bg-[#0054a6] transition-colors shadow-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Generate Vouchers</span>
-          </button>
+          {canMutate && (
+            <button
+              onClick={() => setShowGenerateModal(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-[#003d7c] text-white rounded-lg text-sm font-semibold hover:bg-[#0054a6] transition-colors shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Generate Vouchers</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -128,13 +132,15 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
           <p className="text-sm text-[#424751] mt-1 mb-6">
             Create your first batch of Wi-Fi vouchers with custom speed & time limitations.
           </p>
-          <button
-            onClick={() => setShowGenerateModal(true)}
-            className="px-4 py-2 bg-[#003d7c] hover:bg-[#0054a6] text-white text-sm font-semibold rounded-lg inline-flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Generate Vouchers</span>
-          </button>
+          {canMutate && (
+            <button
+              onClick={() => setShowGenerateModal(true)}
+              className="px-4 py-2 bg-[#003d7c] hover:bg-[#0054a6] text-white text-sm font-semibold rounded-lg inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Generate Vouchers</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-6">

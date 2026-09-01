@@ -1,9 +1,12 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { apiRouter } from './server/routes/api.js';
+import { authRouter } from './server/routes/auth.js';
+import { requireAuth } from './server/auth/authMiddleware.js';
 
 dotenv.config();
 
@@ -17,9 +20,12 @@ async function startServer() {
   // JSON Body parsing
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+  app.use(cookieParser());
 
-  // Mount API router FIRST
-  app.use('/api', apiRouter);
+  // Auth routes are public (login needs to work while logged out); every
+  // other /api route requires a valid session.
+  app.use('/api/auth', authRouter);
+  app.use('/api', requireAuth, apiRouter);
 
   // Vite middleware for development vs Static serving for production
   if (process.env.NODE_ENV !== 'production') {

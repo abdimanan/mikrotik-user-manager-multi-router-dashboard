@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { MainTab, RouterAlert } from '../types';
-import { Download, ShieldCheck, HelpCircle } from 'lucide-react';
+import { MainTab, RouterAlert, PublicAppUser } from '../types';
+import { Download, ShieldCheck, HelpCircle, LogOut } from 'lucide-react';
 import { api } from '../api';
 
 interface HeaderProps {
   currentTab: MainTab;
   onTabChange: (tab: MainTab) => void;
   alerts: RouterAlert[];
+  user: PublicAppUser;
+  onLogout: () => void;
   onOpenAlerts: () => void;
   onOpenFirewallGuide: () => void;
   onOpenAddRouter: () => void;
@@ -16,6 +18,8 @@ export const Header: React.FC<HeaderProps> = ({
   currentTab,
   onTabChange,
   alerts,
+  user,
+  onLogout,
   onOpenAlerts,
   onOpenFirewallGuide,
   onOpenAddRouter
@@ -145,15 +149,17 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         {/* Download Project ZIP */}
-        <button
-          onClick={handleDownloadZip}
-          disabled={downloading}
-          className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white bg-[#0054a6] hover:bg-[#003d7c] rounded transition-colors"
-          title="Download complete working source code ZIP"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>{downloading ? 'Preparing ZIP...' : 'Export ZIP'}</span>
-        </button>
+        {user.role === 'super-admin' && (
+          <button
+            onClick={handleDownloadZip}
+            disabled={downloading}
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white bg-[#0054a6] hover:bg-[#003d7c] rounded transition-colors"
+            title="Download complete working source code ZIP"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>{downloading ? 'Preparing ZIP...' : 'Export ZIP'}</span>
+          </button>
+        )}
 
         {/* Notifications Icon with Badge */}
         <button
@@ -166,6 +172,21 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-[#ba1a1a] rounded-full ring-2 ring-white"></span>
           )}
         </button>
+
+        {/* Current User + Logout */}
+        <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-[#c2c6d3]">
+          <div className="hidden sm:flex flex-col items-end leading-tight">
+            <span className="text-xs font-semibold text-[#141d23]">{user.username}</span>
+            <span className="text-[10px] text-[#727783] uppercase tracking-wider">{user.role}</span>
+          </div>
+          <button
+            onClick={onLogout}
+            className="hover:bg-[#dbe4ed] p-2 rounded-full transition-colors text-[#003d7c]"
+            title="Sign out"
+          >
+            <LogOut className="w-[18px] h-[18px]" />
+          </button>
+        </div>
       </div>
     </header>
   );

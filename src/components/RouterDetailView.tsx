@@ -5,6 +5,7 @@ import { api } from '../api';
 
 interface RouterDetailViewProps {
   router: RouterRecord;
+  canMutate: boolean;
   onBack: () => void;
   onNavigateToModule: (module: 'users' | 'sessions' | 'vouchers' | 'reports', routerId: string) => void;
   onOpenTerminal: (router: RouterRecord) => void;
@@ -28,6 +29,7 @@ function buildSparklinePath(values: number[]): string {
 
 export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
   router,
+  canMutate,
   onBack,
   onNavigateToModule,
   onOpenTerminal
@@ -167,24 +169,26 @@ export const RouterDetailView: React.FC<RouterDetailViewProps> = ({
           </div>
         </div>
 
-        <div className="flex gap-2.5">
-          <button
-            onClick={() => onOpenTerminal(router)}
-            className="h-9 px-4 bg-white hover:bg-[#e6eff8] text-[#003d7c] border border-[#c2c6d3] rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-xs"
-          >
-            <Terminal className="w-4 h-4" />
-            <span>Terminal</span>
-          </button>
+        {canMutate && (
+          <div className="flex gap-2.5">
+            <button
+              onClick={() => onOpenTerminal(router)}
+              className="h-9 px-4 bg-white hover:bg-[#e6eff8] text-[#003d7c] border border-[#c2c6d3] rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-xs"
+            >
+              <Terminal className="w-4 h-4" />
+              <span>Terminal</span>
+            </button>
 
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="h-9 px-4 bg-[#003d7c] hover:bg-[#0054a6] text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-xs disabled:opacity-70"
-          >
-            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            <span>{syncing ? 'Syncing...' : 'Sync Data'}</span>
-          </button>
-        </div>
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="h-9 px-4 bg-[#003d7c] hover:bg-[#0054a6] text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-xs disabled:opacity-70"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              <span>{syncing ? 'Syncing...' : 'Sync Data'}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Primary Stats Grid (Bento Style) matching Image 5 */}

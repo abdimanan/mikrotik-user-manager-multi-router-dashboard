@@ -2,6 +2,47 @@ export type ConnectionType = 'api' | 'api-ssl';
 
 export type RouterStatus = 'online' | 'offline' | 'warning' | 'connecting';
 
+// 'viewer' is read-only across every router. 'scoped-viewer' is read-only but
+// limited to `assignedRouterIds`, same scoping as 'admin' - the difference
+// between the two is purely mutate-vs-read-only, not router visibility.
+export type AppRole = 'super-admin' | 'admin' | 'viewer' | 'scoped-viewer';
+
+// A dashboard login account (not a RouterOS/User Manager hotspot user - see
+// UserManagerUser below for that). `assignedRouterIds` is only meaningful for
+// the 'admin' and 'scoped-viewer' roles.
+export interface AppUser {
+  id: string;
+  username: string;
+  passwordHash: string;
+  role: AppRole;
+  assignedRouterIds: string[];
+  status: 'active' | 'disabled';
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+  // id of the account that created this one. Lets an 'admin' manage only the
+  // 'scoped-viewer' accounts they personally created (see server/routes/accounts.ts).
+  createdBy?: string;
+}
+
+// AppUser as sent to the client - never include passwordHash in a response.
+export type PublicAppUser = Omit<AppUser, 'passwordHash'>;
+
+// A single recorded action: who (userId/username/role, captured at the time
+// of the action - not a live join, so it stays accurate even if the account
+// is later renamed/deleted), what (action/targetType/targetId), and when.
+export interface AuditLogEntry {
+  id: string;
+  userId: string;
+  username: string;
+  role: AppRole;
+  action: string; // e.g. 'router.create', 'auth.login' - dot-namespaced, not an enum, so new actions don't need a type change
+  targetType: string; // e.g. 'router', 'user', 'session', 'voucher', 'account'
+  targetId?: string;
+  detail?: string;
+  timestamp: string;
+}
+
 export interface RouterRecord {
   id: string;
   name: string;
